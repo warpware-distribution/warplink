@@ -1,0 +1,8 @@
+TELEMETRY <<TARGET>> <<PACKET_NAME>> <<ENDIANNESS>> "<<DESCRIPTION>>"
+  # Keyword        Name                          BitSize   Type      ID        Description
+  APPEND_ID_ITEM   STREAM_ID                     16        UINT      <<APID>>  "Stream ID"
+    FORMAT_STRING "0x%04X"
+  APPEND_ITEM      SEQUENCE                      16        UINT                "Packet Sequence"
+    FORMAT_STRING "0x%04X"
+  APPEND_ITEM      PKT_LEN                       16        UINT                "Length of the packet"
+<<ADDITIONAL_FIELDS>>

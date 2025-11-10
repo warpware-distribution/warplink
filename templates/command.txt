@@ -1,0 +1,6 @@
+COMMAND <<TARGET>> <<PACKET_NAME>> <<ENDIANNESS>> "<<DESCRIPTION>>"
+  # Keyword        Name                          BitSize   Type      ID        Description
+  APPEND_ID_PARAMETER STREAM_ID                  16        UINT      <<APID>>  "Stream ID"
+  APPEND_PARAMETER SEQUENCE                      16        UINT                "Packet Sequence"
+  APPEND_PARAMETER PKT_LEN                       16        UINT                "Length of the packet"
+<<ADDITIONAL_FIELDS>>

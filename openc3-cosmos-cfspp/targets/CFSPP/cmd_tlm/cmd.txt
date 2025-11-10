@@ -1,0 +1,65 @@
+COMMAND CFSPP cmd_gnc_inert_nav_dead_reckon_set_noise BIG_ENDIAN " "
+  # Keyword        Name                          BitSize   Type      ID        Description
+  APPEND_ID_PARAMETER STREAM_ID                  16        UINT      769       "Stream ID"
+  APPEND_PARAMETER SEQUENCE                      16        UINT                "Packet Sequence"
+  APPEND_PARAMETER PKT_LEN                       16        UINT                "Length of the packet"
+  APPEND_PAREMETER vel_std_0                     32        FLOAT               " "
+  APPEND_PAREMETER vel_std_1                     32        FLOAT               " "
+  APPEND_PAREMETER vel_std_2                     32        FLOAT               " "
+  APPEND_PAREMETER att_std_0                     32        FLOAT               " "
+  APPEND_PAREMETER att_std_1                     32        FLOAT               " "
+  APPEND_PAREMETER att_std_2                     32        FLOAT               " "
+  APPEND_PAREMETER att_std_3                     32        FLOAT               " "
+  APPEND_PAREMETER gyroBias_std_0                32        FLOAT               " "
+  APPEND_PAREMETER gyroBias_std_1                32        FLOAT               " "
+  APPEND_PAREMETER gyroBias_std_2                32        FLOAT               " "
+  APPEND_PAREMETER accelBias_std_0               32        FLOAT               " "
+  APPEND_PAREMETER accelBias_std_1               32        FLOAT               " "
+  APPEND_PAREMETER accelBias_std_2               32        FLOAT               " "
+  APPEND_ITEM      CRC                           16        UINT                "CRC16 checksum"
+
+COMMAND CFSPP cmd_gnc_inert_nav_gps_update_set_noise BIG_ENDIAN " "
+  # Keyword        Name                          BitSize   Type      ID        Description
+  APPEND_ID_PARAMETER STREAM_ID                  16        UINT      801       "Stream ID"
+  APPEND_PARAMETER SEQUENCE                      16        UINT                "Packet Sequence"
+  APPEND_PARAMETER PKT_LEN                       16        UINT                "Length of the packet"
+  APPEND_PAREMETER gps_std_0                     32        FLOAT               " "
+  APPEND_PAREMETER gps_std_1                     32        FLOAT               " "
+  APPEND_PAREMETER gps_std_2                     32        FLOAT               " "
+  APPEND_ITEM      CRC                           16        UINT                "CRC16 checksum"
+
+COMMAND CFSPP cmd_gnc_inert_nav_mag_update_set_noise BIG_ENDIAN " "
+  # Keyword        Name                          BitSize   Type      ID        Description
+  APPEND_ID_PARAMETER STREAM_ID                  16        UINT      785       "Stream ID"
+  APPEND_PARAMETER SEQUENCE                      16        UINT                "Packet Sequence"
+  APPEND_PARAMETER PKT_LEN                       16        UINT                "Length of the packet"
+  APPEND_PAREMETER mag_std_0                     32        FLOAT               " "
+  APPEND_PAREMETER mag_std_1                     32        FLOAT               " "
+  APPEND_PAREMETER mag_std_2                     32        FLOAT               " "
+  APPEND_ITEM      CRC                           16        UINT                "CRC16 checksum"
+
+COMMAND CFSPP cmd_led_blinker_change_freq BIG_ENDIAN " "
+  # Keyword        Name                          BitSize   Type      ID        Description
+  APPEND_ID_PARAMETER STREAM_ID                  16        UINT      1025      "Stream ID"
+  APPEND_PARAMETER SEQUENCE                      16        UINT                "Packet Sequence"
+  APPEND_PARAMETER PKT_LEN                       16        UINT                "Length of the packet"
+  APPEND_PAREMETER frequency                     8         UINT                " "
+  APPEND_ITEM      CRC                           16        UINT                "CRC16 checksum"
+
+COMMAND CFSPP cmd_gnc_pd_att_ctrl_change_gain BIG_ENDIAN " "
+  # Keyword        Name                          BitSize   Type      ID        Description
+  APPEND_ID_PARAMETER STREAM_ID                  16        UINT      817       "Stream ID"
+  APPEND_PARAMETER SEQUENCE                      16        UINT                "Packet Sequence"
+  APPEND_PARAMETER PKT_LEN                       16        UINT                "Length of the packet"
+  APPEND_PAREMETER P                             32        FLOAT               " "
+  APPEND_PAREMETER K                             32        FLOAT               " "
+  APPEND_ITEM      CRC                           16        UINT                "CRC16 checksum"
+
+COMMAND CFSPP cmd_gnc_pd_att_ctrl_change_deadband BIG_ENDIAN " "
+  # Keyword        Name                          BitSize   Type      ID        Description
+  APPEND_ID_PARAMETER STREAM_ID                  16        UINT      818       "Stream ID"
+  APPEND_PARAMETER SEQUENCE                      16        UINT                "Packet Sequence"
+  APPEND_PARAMETER PKT_LEN                       16        UINT                "Length of the packet"
+  APPEND_PAREMETER att_deadband_rad              32        FLOAT               " "
+  APPEND_ITEM      CRC                           16        UINT                "CRC16 checksum"
+

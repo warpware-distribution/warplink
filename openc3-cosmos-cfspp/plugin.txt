@@ -1,0 +1,7 @@
+# Set VARIABLEs here to allow variation in your plugin
+
+VARIABLE cfspp_target_name CFSPP
+
+TARGET CFSPP <%= cfspp_target_name %>
+INTERFACE <%= cfspp_target_name %>_INT openc3/interfaces/tcpip_client_interface.py host.docker.internal 8080 8081 10.0 None BURST
+  MAP_TARGET <%= cfspp_target_name %>
