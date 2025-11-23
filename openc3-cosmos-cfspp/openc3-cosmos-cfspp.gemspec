@@ -1,6 +1,5 @@
 # encoding: ascii-8bit
 
-# Create the overall gemspec
 Gem::Specification.new do |s|
   s.name = 'openc3-cosmos-cfspp'
   s.summary = 'OpenC3 openc3-cosmos-cfspp plugin'
@@ -19,5 +18,8 @@ Gem::Specification.new do |s|
     time = Time.now.strftime("%Y%m%d%H%M%S")
     s.version = '0.0.0' + ".#{time}"
   end
-  s.files = Dir.glob("{targets,lib,tools,microservices}/**/*") + %w(Rakefile README.md LICENSE.txt plugin.txt requirements.txt)
+
+  # Include all relevant files
+  s.files = Dir.glob("{targets,lib,tools,microservices}/**/*") +
+            %w(Rakefile README.md LICENSE.txt plugin.txt requirements.txt)
 end

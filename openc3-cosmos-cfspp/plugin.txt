@@ -1,7 +1,14 @@
-# Set VARIABLEs here to allow variation in your plugin
+# plugin.txt - CFSPP plugin for Python microservice
 
+# Set variables
 VARIABLE cfspp_target_name CFSPP
 
+# Define the target
 TARGET CFSPP <%= cfspp_target_name %>
-INTERFACE <%= cfspp_target_name %>_INT openc3/interfaces/tcpip_client_interface.py host.docker.internal 8080 8081 10.0 None BURST
+
+# Define the interface (Python module)
+INTERFACE <%= cfspp_target_name %>_INT openc3/interfaces/udp_interface.py 192.168.10.152 5006 5005 None None 128 10.0 None
+  PROTOCOL WRITE openc3/interfaces/protocols/crc_protocol.py CRC False ERROR -16 16 BIG_ENDIAN 0x8005 0xFFFF False True
+  PROTOCOL READ check_pattern.py
+  PROTOCOL READ openc3/interfaces/protocols/crc_protocol.py CRC False ERROR -16 16 BIG_ENDIAN 0x8005 0xFFFF False True
   MAP_TARGET <%= cfspp_target_name %>
