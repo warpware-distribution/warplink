@@ -1,9 +1,9 @@
 {
   "product": "warplink",
   "source_repo": "git@github.com:attx-engineering/warplink.git",
-  "source_tag": "25.11-0",
-  "source_commit": "7953c03419998ed8a8d4df403b19ba1292a74128",
+  "source_tag": "25.11-2",
+  "source_commit": "8e5177e16831629082118092711df1784e554c33",
   "dist_repo": "git@github.com:warpware-distribution/warplink.git",
   "dist_branch": "main",
-  "released_at_utc": "2025-11-23T18:50:13Z"
+  "released_at_utc": "2025-11-25T22:51:39Z"
 }
