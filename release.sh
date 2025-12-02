@@ -130,7 +130,7 @@ fi
 # NOTE: These come from the working tree, not the archive.
 # Be careful not to copy real secrets (e.g. a production .env) into another repo.
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-EXTRA_DOTFILES=(.env)
+EXTRA_DOTFILES=(.env, .gitignore)
 
 for f in "${EXTRA_DOTFILES[@]}"; do
   if [[ -f "${REPO_ROOT}/${f}" ]]; then
