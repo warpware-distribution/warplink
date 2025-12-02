@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # ===== CONFIG DEFAULTS =====
 DIST_URL_DEFAULT="git@github.com:warpware-distribution/warplink.git"
 DIST_BRANCH_DEFAULT="main"
-RELEASEIGNORE_FILE=".releaseignore"   # patterns to remove from exported tree
+RELEASEIGNORE_FILE="../.releaseignore"   # patterns to remove from exported tree
 
 # ===== UTILS =====
 err()  { printf "\e[31mERROR:\e[0m %s\n" "$*" >&2; }
