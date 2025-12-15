@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # ===== CONFIG DEFAULTS =====
 DIST_URL_DEFAULT="git@github.com:warpware-distribution/warplink.git"
 DIST_BRANCH_DEFAULT="main"
-RELEASEIGNORE_FILE=".releaseignore"   # patterns to remove from exported tree
+RELEASEIGNORE_FILE="../.releaseignore"   # patterns to remove from exported tree
 
 # ===== UTILS =====
 err()  { printf "\e[31mERROR:\e[0m %s\n" "$*" >&2; }
@@ -126,6 +126,19 @@ else
   info "No ${RELEASEIGNORE_FILE} found; skipping sanitize step"
 fi
 
+# ===== OPTIONAL EXTRA DOTFILES FROM WORKING TREE =====
+# NOTE: These come from the working tree, not the archive.
+# Be careful not to copy real secrets (e.g. a production .env) into another repo.
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+EXTRA_DOTFILES=(.env, .gitignore)
+
+for f in "${EXTRA_DOTFILES[@]}"; do
+  if [[ -f "${REPO_ROOT}/${f}" ]]; then
+    cp "${REPO_ROOT}/${f}" "${EXPORT_DIR}/${f}"
+    info "Included extra dotfile from working tree: ${f}"
+  fi
+done
+
 # ===== ADD RELEASE METADATA =====
 DATE_ISO="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 cat > "${EXPORT_DIR}/RELEASE_METADATA.json" <<META
@@ -149,8 +162,7 @@ cd ${PUSH_DIR}
 
 # Copy the exported tree
 rm -rf "${EXPORT_DIR}/.git"
-cp -r ../export/* .
-
+cp -a "${EXPORT_DIR}/." .
 # First commit
 git add .
 git commit -m "Release ${TAG} from ${SOURCE_SHA}"

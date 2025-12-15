@@ -1,0 +1,15 @@
+# CI/CD and internal tooling
+.github/
+.gitlab/
+.azure-pipelines.yml
+Jenkinsfile
+scripts/internal/**
+
+# Tests and dev-only
+tests/**
+docs/dev/**
+*.md.e2e
+
+# Secrets / local config (ensure these aren't in git at all ideally)
+*.secret
+config/local/**
