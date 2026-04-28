@@ -1,5 +1,5 @@
 # ==== Configurable variables ====
-# Change COM5 to whatever shows in Device Manager
+# Change COM4 to whatever shows in Device Manager
 VARIABLE write_port_name COM4
 VARIABLE read_port_name  COM4
 
@@ -22,6 +22,6 @@ INTERFACE SERIAL_INT serial_interface.rb <%= write_port_name %> <%= read_port_na
     OPTION DATA_BITS <%= data_bits %>
 
 # ==== TCP router (what COSMOS connects to) ====
-ROUTER SERIAL_ROUTER openc3/interface/tcpip_server_interface.py <%= router_port %> <%= router_port %> 10.0 NONE FIXED 30
+ROUTER SERIAL_ROUTER openc3/interface/tcpip_server_interface.py <%= router_port %> <%= router_port %> 10.0 NONE BURST
     ROUTE SERIAL_INT
     OPTION LISTEN_ADDRESS 127.0.0.1
