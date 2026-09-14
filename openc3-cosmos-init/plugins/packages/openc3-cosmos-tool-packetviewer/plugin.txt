@@ -1,0 +1,4 @@
+TOOL packetviewer "Packet Viewer"
+  INLINE_URL main.js
+  ICON mdi-format-list-bulleted
+  POSITION 6

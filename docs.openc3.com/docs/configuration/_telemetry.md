@@ -1,0 +1,142 @@
+---
+sidebar_position: 5
+title: Telemetry
+description: Telemetry definition file format and keywords
+sidebar_custom_props:
+  myEmoji: 📡
+---
+
+<!-- Be sure to edit _telemetry.md because telemetry.md is a generated file -->
+
+## Telemetry Concepts
+
+When COSMOS receives a telemetry packet from a target, the system will log the raw packet, decommutate it to engineering values, and log the decommutated data. This data is stored in log files and in Redis, and it is made available via the CmdTlmApi Server:
+
+![Telemetry Processing Diagram](/img/tlm-processing.png)
+
+## Telemetry Definition Files
+
+Telemetry definition files define the telemetry packets that can be received and processed from COSMOS targets. One large file can be used to define the telemetry packets, or multiple files can be used at the user's discretion. Telemetry definition files are placed in the target's cmd_tlm directory and are processed alphabetically. Therefore if you have some telemetry files that depend on others, e.g. they override or extend existing telemetry, they must be named last. The easiest way to do this is to add an extension to an existing file name. For example, if you already have tlm.txt you can create tlm_override.txt for telemetry that depends on the definitions in tlm.txt. Note that due to the way the [ASCII Table](http://www.asciitable.com/) is structured, files beginning with capital letters are processed before lower case letters.
+
+When defining telemetry items you can choose from the following data types: INT, UINT, FLOAT, STRING, BLOCK. These correspond to integers, unsigned integers, floating point numbers, strings and binary blocks of data. Within COSMOS, the only difference between a STRING and BLOCK is when COSMOS reads a STRING type it stops reading when it encounters a null byte (0). This shows up when displaying the value in Packet Viewer or Tlm Viewer and in the output of Data Extractor. You should strive to store non-ASCII data inside BLOCK items and ASCII strings in STRING items. Additional data types of BOOL, ARRAY, OBJECT, and ANY are also available if you are using an Accessor that supports them. These are Booleans (true/false), arrays of unknown data type, objects with unknown contents, and a completely unknown data type with ANY.
+
+:::info Printing Data
+
+Most data types can be printed in a COSMOS script simply by doing <code>print(tlm("TGT PKT ITEM"))</code>. However, if the ITEM is a BLOCK data type and contains binary (non-ASCII) data then that won't work. COSMOS comes with a built-in method called <code>formatted</code> to help you view binary data. If ITEM is a BLOCK type containing binary try <code>puts tlm("TGT PKT ITEM").formatted</code> (Ruby) and <code>print(formatted(tlm("TGT PKT ITEM")))</code> (Python) which will print the bytes out as hex.
+:::
+
+### Naming Convention
+
+Telemetry Packets and Items can be named however you want with very few exceptions. The following is not allowed in Packet or Item names: `__` (double underscore), `[[` or `]]` (double brackets), whitespace, and ending a name with underscore. While not much else is _explicitly_ restricted we've found the following guidelines to be helpful.
+
+- Use underscores
+
+  Packet and Item names like `HEALTH_STATUS` or `GND1_STATUS` are easy to read and understand.
+
+- Be descriptive but succinct
+
+  A packet name like `BUS_FLIGHT_SOFTWARE_ADCS_PACKET` is a valid packet name but makes all the drop downs extra long and is a lot to type. A better choice might be `BFSW_ADCS`. You already know it's a packet and the first three words collapse to an easy to understand acronym.
+
+- Avoid brackets in telemetry and item names
+
+  Array items use brackets to allow indexing into an individual item. Thus if you use brackets in item names it gets confusing as to whether this is a COSMOS [ARRAY_ITEM](telemetry#array_item) or simply a name with brackets. We support brackets for legacy reasons but avoid them when possible. Note that if you have existing telemetry names with brackets you must escape them in Telemetry Viewer screens by using double brackets. For example from the Demo: `LABELVALUE INST HEALTH_STATUS BRACKET[[0]]`
+
+### ID Items
+
+All packets require identification items so the incoming data can be matched to a packet structure. These items are defined using the [ID_ITEM](telemetry#id_item) and [APPEND_ID_ITEM](telemetry#append_id_item). As data is read from the interface and refined by the protocol, the resulting packet is identified by matching all the ID fields. Note that ideally all packets in a particular target should use the exact same bit offset, bit size, and data type to identify.
+
+### Variable Sized Items
+
+COSMOS specifies a variable sized item with a bit size of 0. When a packet is identified, all other data that isn't explicitly defined will be put into the variable sized item. These items are typically used for packets containing memory dumps which vary in size depending on the number of bytes dumped. Note that there can only be one variable sized item per packet.
+
+### Derived Items
+
+COSMOS has a concept of a derived item which is a telemetry item that doesn't actually exist in the binary data. Derived items are typically computed based on other telemetry items. COSMOS derived items are very similar to real items except they use the special DERIVED data type. Here is how a derived item might look in a telemetry definition.
+
+```ruby
+ITEM TEMP_AVERAGE 0 0 DERIVED "Average of TEMP1, TEMP2, TEMP3, TEMP4"
+```
+
+Note the bit offset and bit size of 0 and the data type of DERIVED. For this reason DERIVED items should be declared using ITEM rather than APPEND_ITEM. They can be defined anywhere in the packet definition but are typically placed at the end. The ITEM definition must be followed by a CONVERSION keyword, e.g. [READ_CONVERSION](telemetry#read_conversion), to generate the value.
+
+:::info Derived Item Ordering
+When telemetry packets are serialized for API responses (e.g., when generating screens or listing items), derived items are always returned last regardless of where they are defined in the telemetry definition file.
+:::
+
+### Received Time and Packet Time
+
+COSMOS automatically creates several telemetry items on every packet: PACKET_TIMESECONDS, PACKET_TIMEFORMATTED, RECEIVED_COUNT, RECEIVED_TIMEFORMATTED, and RECEIVED_TIMESECONDS.
+
+RECEIVED_TIME is the time that COSMOS receives the packet. This is set by the interface which is connected to the target and is receiving the raw data. Once a packet has been created out of the raw data the time is set.
+
+PACKET_TIME defaults to RECEIVED_TIME, but can be set as a derived item with a time object in the telemetry configuration file. This helps support stored telemetry packets so that they can be more reasonably handled by other COSMOS tools such as Telemetry Grapher and Data Extractor. You can set the 'stored' flag in your interface and the current value table is unaffected.
+
+The \_TIMEFORMATTED items returns the date and time in a YYYY/MM/DD HH:MM:SS.sss format and the \_TIMESECONDS returns the Unix seconds of the time. Internally these are both stored as either a Ruby Time object or Python date object.
+
+#### Example
+
+COSMOS provides a Unix time conversion class which returns a Ruby Time object or Python date object based on the number of seconds and (optionally) microseconds since the Unix epoch. Note: This returns a native object and not a float or string!
+
+<Tabs groupId="script-language">
+<TabItem value="python" label="Python">
+```python
+ITEM PACKET_TIME 0 0 DERIVED "Python time based on TIMESEC and TIMEUS"
+    READ_CONVERSION openc3/conversions/unix_time_conversion.py TIMESEC TIMEUS
+```
+</TabItem>
+<TabItem value="ruby" label="Ruby">
+```ruby
+ITEM PACKET_TIME 0 0 DERIVED "Ruby time based on TIMESEC and TIMEUS"
+    READ_CONVERSION unix_time_conversion.rb TIMESEC TIMEUS
+```
+</TabItem>
+</Tabs>
+
+Defining PACKET_TIME allows the PACKET_TIMESECONDS and PACKET_TIMEFORMATTED to be calculated against an internal Packet time rather than the time COSMOS receives the packet.
+
+<div style={{"clear": 'both'}}></div>
+
+# Telemetry Keywords
+
+COSMOS_META
+
+## Example File
+
+**Example File: TARGET/cmd_tlm/tlm.txt**
+
+<!-- prettier-ignore -->
+```ruby
+TELEMETRY TARGET HS BIG_ENDIAN "Health and Status for My Target"
+  ITEM CCSDSVER 0 3 UINT "CCSDS PACKET VERSION NUMBER (SEE CCSDS 133.0-B-1)"
+  ITEM CCSDSTYPE 3 1 UINT "CCSDS PACKET TYPE (COMMAND OR TELEMETRY)"
+    STATE TLM 0
+    STATE CMD 1
+  ITEM CCSDSSHF 4 1 UINT "CCSDS SECONDARY HEADER FLAG"
+    STATE FALSE 0
+    STATE TRUE 1
+  ID_ITEM CCSDSAPID 5 11 UINT 102 "CCSDS APPLICATION PROCESS ID"
+  ITEM CCSDSSEQFLAGS 16 2 UINT "CCSDS SEQUENCE FLAGS"
+    STATE FIRST 0
+    STATE CONT 1
+    STATE LAST 2
+    STATE NOGROUP 3
+  ITEM CCSDSSEQCNT 18 14 UINT "CCSDS PACKET SEQUENCE COUNT"
+  ITEM CCSDSLENGTH 32 16 UINT "CCSDS PACKET DATA LENGTH"
+  ITEM CCSDSDAY 48 16 UINT "DAYS SINCE EPOCH (JANUARY 1ST, 1958, MIDNIGHT)"
+  ITEM CCSDSMSOD 64 32 UINT "MILLISECONDS OF DAY (0 - 86399999)"
+  ITEM CCSDSUSOMS 96 16 UINT "MICROSECONDS OF MILLISECOND (0-999)"
+  ITEM ANGLEDEG 112 16 INT "Instrument Angle in Degrees"
+    POLY_READ_CONVERSION 0 57.295
+  ITEM MODE 128 8 UINT "Instrument Mode"
+    STATE NORMAL 0 GREEN
+    STATE DIAG 1 YELLOW
+  ITEM TIMESECONDS 0 0 DERIVED "DERIVED TIME SINCE EPOCH IN SECONDS"
+    GENERIC_READ_CONVERSION_START FLOAT 32
+      ((packet.read('ccsdsday') * 86400.0) + (packet.read('ccsdsmsod') / 1000.0) + (packet.read('ccsdsusoms') / 1000000.0)  )
+    GENERIC_READ_CONVERSION_END
+  ITEM TIMEFORMATTED 0 0 DERIVED "DERIVED TIME SINCE EPOCH AS A FORMATTED STRING"
+    GENERIC_READ_CONVERSION_START STRING 216
+      time = Time.ccsds2mdy(packet.read('ccsdsday'), packet.read('ccsdsmsod'), packet.read('ccsdsusoms'))
+      sprintf('%04u/%02u/%02u %02u:%02u:%02u.%06u', time[0], time[1], time[2], time[3], time[4], time[5], time[6])
+    GENERIC_READ_CONVERSION_END
+```

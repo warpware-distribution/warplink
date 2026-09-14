@@ -1,0 +1,176 @@
+---
+SCREEN:
+  summary: Define a telemetry viewer screen
+  description: The SCREEN keyword is the first keyword in any telemetry screen definition.
+    It defines the name of the screen and parameters that affect the screen overall.
+  parameters:
+    - name: Width
+      required: true
+      description: Width in pixels or AUTO to let Telemetry Viewer automatically
+        layout the screen
+      values: \d+
+    - name: Height
+      required: true
+      description: Height in pixels or AUTO to let Telemetry Viewer automatically
+        layout the screen
+      values: \d+
+    - name: Polling Period
+      required: true
+      description: Number of seconds between screen updates
+      values: '[0-9]*\.?[0-9]+'
+  example: |
+    SCREEN AUTO AUTO 1.0
+END:
+  summary: Indicates the close of a layout widget
+  description: All layout widgets must be closed to properly identify where they
+    stop. For example, a VERTICALBOX keyword must be matched with an END keyword
+    to indicate where the VERTICALBOX ends.
+STALE_TIME:
+  summary: Values are marked stale if the packet time is more than Stale Time seconds in the past
+  since: 5.1.0
+  parameters:
+    - name: value
+      required: true
+      description: Items from packets with RECEIVED_TIMESECONDS greater than this value in the past will be marked stale.
+        The default is 30s. Recommend a minimum of 2s to avoid false positives due to race conditions.
+      values: \d+
+  example: |
+    STALE_TIME 5 # Number of seconds to wait before marking data stale
+GLOBAL_SETTING:
+  summary: Applies a widget setting to all widgets of a certain type
+  parameters:
+    - name: Widget Class Name
+      required: true
+      description: The name of the class of widgets that this setting will be
+        applied to. For example, LABEL or BUTTON.
+      values: .+
+    - name: Setting Name
+      required: true
+      description: See SETTING for details.
+      values: .+
+    - name: Setting Value(s)
+      required: false
+      description: See SETTING for details.
+      values: .*
+  example: |
+    GLOBAL_SETTING LABELVALUELIMITSBAR TEXTCOLOR BLACK
+GLOBAL_SUBSETTING:
+  summary: Applies a widget subsetting to all widgets of a certain type
+  description: Subsettings are only valid for widgets that are
+    made up of more than one subwidget. For example, LABELVALUE is made up of a LABEL
+    at subwidget index 0 and a VALUE at subwidget index 1. This allows for passing
+    settings to specific subwidgets. Some widgets are made up of multiple subwidgets,
+    e.g. LABELVALUELIMITSBAR. To set the Label widget, pass 0 as the Subwidget
+    Index, pass 1 for the Value widget, and 2 for the LimitsBar widget.
+  parameters:
+    - name: Widget Class Name
+      required: true
+      description: The name of the class of widgets that this setting will be
+        applied to. For example, LABELVALUE.
+      values: .+
+    - name: Subwidget Index
+      required: true
+      description: Index to the desired subwidget
+      values: .+
+    - name: Setting Name
+      required: true
+      description: See SETTING for details.
+      values: .+
+    - name: Setting Value(s)
+      required: false
+      description: See SETTING for details.
+      values: .*
+  example: |
+    # Set all text color to white for labelvaluelimitsbars
+    GLOBAL_SUBSETTING LABELVALUELIMITSBAR 0 TEXTCOLOR white
+SETTING:
+  summary: Applies a widget setting to the previously defined widget
+  description: |
+    Settings allow for additional tweaks and options to be applied to widgets
+    that are not available in their parameters. These settings are all configured
+    through the SETTING, SUBSETTING, GLOBAL_SETTING and GLOBAL_SUBSETTING keywords.
+    SETTING and SUBSETTING applies only to the widget defined immediately before it.
+    GLOBAL_SETTING and GLOBAL_SUBSETTING applies to all widgets.
+
+    Common wiget settings are defined here. Some widgets define their own
+    unique settings which are documented under that specific widget.
+  collection:
+    <%= MetaConfigParser.load('settings.yaml').to_meta_config_yaml(4) %>
+SUBSETTING:
+  summary: Applies a widget subsetting to the previously defined widget
+  description: Subsettings are only valid for widgets that are
+    made up of more than one subwidget. For example, LABELVALUE is made up of a LABEL
+    at subwidget index 0 and a VALUE at subwidget index 1. This allows for passing
+    settings to specific subwidgets. Some widgets are made up of multiple subwidgets,
+    e.g. LABELVALUELIMITSBAR. To set the Label widget, pass 0 as the Subwidget
+    Index, pass 1 for the Value widget, and 2 for the LimitsBar widget.
+  parameters:
+    - name: Subwidget Index
+      required: true
+      description: Index to the desired subwidget or 'ALL' to apply the setting
+        to all the subwidgets of this composite widget.
+      values: .+
+    - name: Setting Name
+      required: true
+      description: See SETTING for details.
+      values: .+
+    - name: Setting Value(s)
+      required: false
+      description: See SETTING for details.
+      values: .*
+  example: |
+    VERTICALBOX
+      LABELVALUE INST HEALTH_STATUS TEMP1
+        SUBSETTING 0 TEXTCOLOR blue # Change the label's text to blue
+      LABELVALUELIMITSBAR INST HEALTH_STATUS TEMP1
+        SUBSETTING 0 TEXTCOLOR green # Change the label's text to green
+    END
+TOOLTIP:
+  summary: Adds a tooltip to the previously defined widget
+  description: TOOLTIP applies a custom hover tooltip to the widget defined immediately before it.
+    This allows you to provide helpful descriptions, mnemonics, or other contextual information
+    that appears when the user hovers over a widget. The tooltip overrides any default tooltip
+    that the widget may have.
+  since: 6.10.3
+  parameters:
+    - name: Tooltip Text
+      required: true
+      description: The text to display in the tooltip when hovering over the widget.
+      values: .+
+    - name: Delay
+      required: false
+      description: The delay in milliseconds before the tooltip appears (default = 600).
+      values: \d+
+  example: |
+    LED INST PARAMS VALUE5 RAW 25 20
+      SETTING LED_COLOR 0 GREEN
+      SETTING LED_COLOR 1 RED
+      TOOLTIP "Mnemonic: ABCDEF. This is the Star Tracker On/Off Status"
+    VALUE INST HEALTH_STATUS TEMP1
+      TOOLTIP "Temperature sensor 1: Primary thermal control" 1000
+NAMED_WIDGET:
+  summary: Name a widget to allow access to it via the getNamedWidget method
+  description: To programmatically access parts of a telemetry screen you need
+    to name the widget. This is useful when creating screens with buttons that
+    read values from other widgets.
+  warning: getNamedWidget returns the widget itself and thus must be operated
+    on using methods native to that widget
+  parameters:
+    - name: Widget Name
+      required: true
+      description: The unique name applied to the following widget instance.
+        Names must be unique per screen.
+      values: .+
+    - name: Widget Type
+      required: true
+      description: One of the widget types listed in Widget Descriptions
+      values: .+
+    - name: Widget Parameters
+      required: true
+      description: The unique parameters for the given widget type
+      values: .+
+  example: |
+    NAMED_WIDGET DURATION TEXTFIELD
+    BUTTON "Push" "screen.getNamedWidget('DURATION').text()"
+
+<%= MetaConfigParser.load('widgets.yaml').to_meta_config_yaml(0) %>

@@ -1,0 +1,103 @@
+---
+LANGUAGE:
+  summary: Programming language of the target interfaces and microservices
+  description: The target language must be either Ruby or Python. The language
+    determines how the target's interfaces and microservices are run. Note that
+    both Ruby and Python still use ERB to perform templating.
+  example: LANGUAGE python
+  parameters:
+    - language: Programming language
+      required: true
+      description: Ruby or Python
+      values: ["ruby", "python"]
+  since: 5.11.1
+REQUIRE:
+  summary: Requires a Ruby file
+  description: List the Ruby files required to explicitly declare dependencies.
+    This is now completely optional.
+  example: REQUIRE limits_response.rb
+  parameters:
+    - name: Filename
+      required: true
+      description: Filename to require. For files in the target's lib directory
+        simply supply the filename, e.g. "REQUIRE my_file". Files in the base OpenC3
+        lib directory also should just list the filename. If a file is in a folder
+        under the lib directory then you must specify the folder name, e.g. "REQUIRE
+        folder/my_file". Note the ".rb" extension is optional when specifying the filename.
+      values: .+
+IGNORE_PARAMETER:
+  summary: Ignore the given command parameter
+  description:
+    Hint to other OpenC3 tools to hide or ignore this command parameter
+    when processing the command. For example, Command Sender and Command Sequence
+    will not display the parameter (by default) when showing the command and Script
+    Runner code completion will not display the parameter.
+  example: IGNORE_PARAMETER CCSDS_VERSION
+  parameters:
+    - name: Parameter Name
+      required: true
+      description:
+        The name of a command parameter. Note that this parameter will
+        be ignored in ALL the commands it appears in.
+      values: .+
+IGNORE_ITEM:
+  summary: Ignore the given telemetry item
+  description: Hint to other OpenC3 tools to hide or ignore this telemetry item
+    when processing the telemetry. For example, Packet Viewer will not display the
+    item (by default) when showing the packet.
+  example: IGNORE_ITEM CCSDS_VERSION
+  parameters:
+    - name: Item name
+      required: true
+      description:
+        The name of a telemetry item. Note that this item will be ignored
+        in ALL the telemetry it appears in.
+      values: .+
+COMMANDS:
+  summary: Process the given command definition file
+  description:
+    This keyword is used to explicitly add the command definition file
+    to the list of command and telemetry files to process.
+  warning: Usage of this keyword overrides automatic command and telemetry file
+    discovery. If this keyword is used, you must also use the TELEMETRY keyword
+    to specify the telemetry files to process.
+  example: |
+    COMMANDS inst_cmds_v2.txt
+    TELEMETRY inst_tlm_v2.txt
+  parameters:
+    - name: Filename
+      required: true
+      description: Name of a command definition file in the target's cmd_tlm directory, e.g. "cmd.txt".
+      values: '.*\.txt'
+TELEMETRY:
+  summary: Process the given telemetry definition file
+  description: This keyword is used to explicitly add the telemetry definition
+    file to the list of command and telemetry files to process.
+  warning: Usage of this keyword overrides automatic command and telemetry file
+    discovery. If this keyword is used, you must also use the COMMAND keyword to
+    specify the command files to process.
+  example: |
+    COMMANDS inst_cmds_v2.txt
+    TELEMETRY inst_tlm_v2.txt
+  parameters:
+    - name: Filename
+      required: true
+      description: Name of a telemetry definition file in the target's cmd_tlm
+        directory, e.g. "tlm.txt".
+      values: '.*\.txt'
+CMD_UNIQUE_ID_MODE:
+  summary: Command packet identifiers don't all share the same bit offset, size, and type
+  description:
+    Ideally all commands for a target are identified using the exact same bit offset, size,
+    and type field in each command. If ANY command identifiers differ then this flag must be set
+    to force a brute force identification method.
+  since: 4.4.0
+  deprecated: Since 6.10.0 this condition is now automatically detected
+TLM_UNIQUE_ID_MODE:
+  summary: Telemetry packets identifiers don't all share the same bit offset, size, and type
+  description:
+    Ideally all telemetry for a target are identified using the exact same bit offset, size,
+    and type field in each packet. If ANY telemetry identifiers differ then this flag must be set
+    to force a brute force identification method.
+  since: 4.4.0
+  deprecated: Since 6.10.0 this condition is now automatically detected

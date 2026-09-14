@@ -1,0 +1,627 @@
+# Copyright 2026 OpenC3, Inc.
+# All Rights Reserved.
+#
+# This program is free software; you can modify and/or redistribute it
+# under the terms of the GNU Affero General Public License
+# as published by the Free Software Foundation; version 3 with
+# attribution addendums as found in the LICENSE.txt
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# This file may also be used under the terms of a commercial license
+# if purchased from OpenC3, Inc.
+
+import os
+import time
+import json
+from openc3.streams.web_socket_client_stream import WebSocketClientStream
+from openc3.utilities.authentication import (
+    OpenC3Authentication,
+    OpenC3KeycloakAuthentication,
+)
+from openc3.utilities.time import to_nsec_from_epoch
+from openc3.environment import OPENC3_SCOPE
+
+
+# NOTE: For example usage see python/examples/cosmos_web_socket_example.py
+
+
+class WebSocketApi:
+    """
+    Base class - Do not use directly
+    """
+    USER_AGENT = "OpenC3 / v5 (ruby/openc3/lib/io/web_socket_api)"
+
+    def __init__(
+        self,
+        url,
+        write_timeout=10.0,
+        read_timeout=10.0,
+        connect_timeout=5.0,
+        authentication=None,
+        scope=OPENC3_SCOPE,
+    ):
+        """Create the WebsocketApi object"""
+        self.scope = scope
+        if authentication is None:
+            self.authentication = self._generate_auth()
+        else:
+            self.authentication = authentication
+        self.url = url
+        self.write_timeout = write_timeout
+        self.read_timeout = read_timeout
+        self.connect_timeout = connect_timeout
+        self.subscribed = False
+
+    def __enter__(self):
+        self.connect()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.disconnect()
+
+    def read_message(self):
+        """Read the next message without filtering / parsing"""
+        self.subscribe()
+        return self.stream.read()
+
+    def read(self, ignore_protocol_messages=True, timeout=None):
+        """
+        Read the next message with json parsing, filtering, and timeout support
+
+        Args:
+            ignore_protocol_messages (bool): If True, will ignore protocol messages like ping, welcome,
+                confirm_subscription, reject_subscription, and disconnect. Default is True.
+            timeout (float): If set, will raise TimeoutError if no data is received within the specified
+                number of seconds. Default is None (no timeout).
+        """
+        start_time = time.time()
+        while True:
+            message = self.read_message()
+            if message:
+                json_hash = json.loads(message)
+                if ignore_protocol_messages:
+                    msg_type = json_hash.get("type")
+                    if msg_type:  # ping, welcome, confirm_subscription, reject_subscription, disconnect
+                        if msg_type == "disconnect":
+                            if json_hash["reason"] == "unauthorized":
+                                raise RuntimeError("Unauthorized")
+                        if msg_type == "reject_subscription":
+                            raise RuntimeError("Subscription Rejected")
+                        if timeout is not None:
+                            end_time = time.time()
+                            if (end_time - start_time) > timeout:
+                                raise TimeoutError("No Data Timeout")
+                        # if defined? RunningScript and RunningScript.instance:
+                        #   if RunningScript.instance.stop?:
+                        #       raise StopScript
+                        continue
+                return json_hash["message"]
+            return message
+
+    def subscribe(self):
+        """Will subscribe to the channel based on @identifier"""
+        if not self.subscribed:
+            json_hash = {}
+            json_hash["command"] = "subscribe"
+            json_hash["identifier"] = json.dumps(self.identifier)
+            self.stream.write(json.dumps(json_hash))
+            self.subscribed = True
+
+    def unsubscribe(self):
+        """Will unsubscribe to the channel based on @identifier"""
+        if self.subscribed:
+            json_hash = {}
+            json_hash["command"] = "unsubscribe"
+            json_hash["identifier"] = json.dumps(self.identifier)
+            self.stream.write(json.dumps(json_hash))
+            self.subscribed = False
+
+    def write_action(self, data_hash):
+        """Send an ActionCable command"""
+        json_hash = {}
+        json_hash["command"] = "message"
+        json_hash["identifier"] = json.dumps(self.identifier)
+        json_hash["data"] = json.dumps(data_hash)
+        self.write(json.dumps(json_hash))
+
+    def write(self, data):
+        """General write to the websocket"""
+        self.subscribe()
+        self.stream.write(data)
+
+    def connect(self):
+        """Connect to the websocket with authorization in query params"""
+        self.disconnect()
+        # Add the token directly in the URL since adding it to the header doesn't seem to work
+        # Note in the this case we remove the "Bearer " string which is part of the token
+        final_url = self.url + f"?scope={self.scope}&authorization={self.authentication.token(include_bearer=False)}"
+        self.stream = WebSocketClientStream(final_url, self.write_timeout, self.read_timeout, self.connect_timeout)
+        self.stream.headers = {
+            "Sec-WebSocket-Protocol": "actioncable-v1-json, actioncable-unsupported",
+            "User-Agent": WebSocketApi.USER_AGENT,
+            # Adding the authorization token to the header is supposed to work
+            # We add it directly with "Bearer <token>"
+            # But for some reason it doesn't so we add it directly to the URL above
+            # "Authorization": self.authentication.token(include_bearer=False),
+        }
+        return self.stream.connect()
+
+    def connected(self):
+        """Are we connected?"""
+        if hasattr(self, "stream"):
+            return self.stream.connected()
+        else:
+            return False
+
+    def disconnect(self):
+        """Disconnect from the websocket and attempt to send unsubscribe message"""
+        if self.connected():
+            self.unsubscribe()
+            self.stream.disconnect()
+
+    def _generate_auth(self):
+        """Generate the appropriate token for OpenC3"""
+        if os.environ.get("OPENC3_API_TOKEN") is None and os.environ.get("OPENC3_API_USER") is None:
+            if os.environ.get("OPENC3_API_PASSWORD"):
+                return OpenC3Authentication()
+            else:
+                return None
+        else:
+            return OpenC3KeycloakAuthentication(os.environ.get("OPENC3_KEYCLOAK_URL"))
+
+
+class CmdTlmWebSocketApi(WebSocketApi):
+    """Base class for cmd-tlm-api websockets - Do not use directly"""
+    
+    def __init__(
+        self,
+        url=None,
+        write_timeout=10.0,
+        read_timeout=10.0,
+        connect_timeout=5.0,
+        authentication=None,
+        scope=OPENC3_SCOPE,
+    ):
+        if not url:
+            url = self.generate_url()
+        super().__init__(
+            url=url,
+            write_timeout=write_timeout,
+            read_timeout=read_timeout,
+            connect_timeout=connect_timeout,
+            authentication=authentication,
+            scope=scope,
+        )
+
+    def generate_url(self):
+        schema = os.environ.get("OPENC3_API_SCHEMA") or "http"
+        if schema == "http":
+            schema = "ws"
+        if schema == "https":
+            schema = "wss"
+        hostname = os.environ.get("OPENC3_API_HOSTNAME") or (
+            "127.0.0.1" if os.environ.get("OPENC3_DEVEL") else "openc3-cosmos-cmd-tlm-api"
+        )
+        port = os.environ.get("OPENC3_API_CABLE_PORT") or os.environ.get("OPENC3_API_PORT") or "3901"
+        port = int(port)
+        return f"{schema}://{hostname}:{port}/openc3-api/cable"
+
+
+class ScriptWebSocketApi(WebSocketApi):
+    """Base class for script-runner-api websockets - Do not use directly"""
+    
+    def __init__(
+        self,
+        url=None,
+        write_timeout=10.0,
+        read_timeout=10.0,
+        connect_timeout=5.0,
+        authentication=None,
+        scope=OPENC3_SCOPE,
+    ):
+        if not url:
+            url = self.generate_url()
+        super().__init__(
+            url=url,
+            write_timeout=write_timeout,
+            read_timeout=read_timeout,
+            connect_timeout=connect_timeout,
+            authentication=authentication,
+            scope=scope,
+        )
+
+    def generate_url(self):
+        schema = os.environ.get("OPENC3_SCRIPT_API_SCHEMA") or "http"
+        if schema == "http":
+            schema = "ws"
+        if schema == "https":
+            schema = "wss"
+        hostname = os.environ.get("OPENC3_SCRIPT_API_HOSTNAME") or (
+            "127.0.0.1" if os.environ.get("OPENC3_DEVEL") else "openc3-cosmos-script-runner-api"
+        )
+        port = os.environ.get("OPENC3_SCRIPT_API_CABLE_PORT") or os.environ.get("OPENC3_SCRIPT_API_PORT") or "3902"
+        port = int(port)
+        return f"{schema}://{hostname}:{port}/script-api/cable"
+
+
+class RunningScriptWebSocketApi(ScriptWebSocketApi):
+    """Running Script WebSocket"""
+    
+    def __init__(
+        self,
+        id,
+        url=None,
+        write_timeout=10.0,
+        read_timeout=10.0,
+        connect_timeout=5.0,
+        authentication=None,
+        scope=OPENC3_SCOPE,
+    ):
+        self.identifier = {"channel": "RunningScriptChannel", "id": id}
+        super().__init__(
+            url=url,
+            write_timeout=write_timeout,
+            read_timeout=read_timeout,
+            connect_timeout=connect_timeout,
+            authentication=authentication,
+            scope=scope,
+        )
+
+
+class AllScriptsWebSocketApi(ScriptWebSocketApi):
+    """All Scripts WebSocket"""
+    
+    def __init__(
+        self,
+        url=None,
+        write_timeout=10.0,
+        read_timeout=10.0,
+        connect_timeout=5.0,
+        authentication=None,
+        scope=OPENC3_SCOPE,
+    ):
+        self.identifier = {"channel": "AllScriptsChannel"}
+        super().__init__(
+            url=url,
+            write_timeout=write_timeout,
+            read_timeout=read_timeout,
+            connect_timeout=connect_timeout,
+            authentication=authentication,
+            scope=scope,
+        )
+
+
+class MessagesWebSocketApi(CmdTlmWebSocketApi):
+    """Log Messages WebSocket"""
+    
+    def __init__(
+        self,
+        history_count=0,
+        start_time=None,
+        end_time=None,
+        level=None,
+        types=None,
+        url=None,
+        write_timeout=10.0,
+        read_timeout=10.0,
+        connect_timeout=5.0,
+        authentication=None,
+        scope=OPENC3_SCOPE,
+    ):
+        self.identifier = {"channel": "MessagesChannel", "history_count": history_count}
+        if start_time is not None:
+            self.identifier["start_time"] = start_time
+        if end_time is not None:
+            self.identifier["end_time"] = end_time
+        if level is not None:
+            self.identifier["level"] = level
+        if types is not None:
+            self.identifier["types"] = types
+        super().__init__(
+            url=url,
+            write_timeout=write_timeout,
+            read_timeout=read_timeout,
+            connect_timeout=connect_timeout,
+            authentication=authentication,
+            scope=scope,
+        )
+
+
+class AutonomicEventsWebSocketApi(CmdTlmWebSocketApi):
+    """Autonomic Events WebSocket (Enterprise Only)"""
+    
+    def __init__(
+        self,
+        history_count=0,
+        url=None,
+        write_timeout=10.0,
+        read_timeout=10.0,
+        connect_timeout=5.0,
+        authentication=None,
+        scope=OPENC3_SCOPE,
+    ):
+        self.identifier = {
+            "channel": "AutonomicEventsChannel",
+            "history_count": history_count,
+        }
+        super().__init__(
+            url=url,
+            write_timeout=write_timeout,
+            read_timeout=read_timeout,
+            connect_timeout=connect_timeout,
+            authentication=authentication,
+            scope=scope,
+        )
+
+
+class CalendarEventsWebSocketApi(CmdTlmWebSocketApi):
+    """Calendar Events WebSocket (Enterprise Only)"""
+    
+    def __init__(
+        self,
+        history_count=0,
+        url=None,
+        write_timeout=10.0,
+        read_timeout=10.0,
+        connect_timeout=5.0,
+        authentication=None,
+        scope=OPENC3_SCOPE,
+    ):
+        self.identifier = {
+            "channel": "CalendarEventsChannel",
+            "history_count": history_count,
+        }
+        super().__init__(
+            url=url,
+            write_timeout=write_timeout,
+            read_timeout=read_timeout,
+            connect_timeout=connect_timeout,
+            authentication=authentication,
+            scope=scope,
+        )
+
+
+class ConfigEventsWebSocketApi(CmdTlmWebSocketApi):
+    """Config Events WebSocket"""
+    
+    def __init__(
+        self,
+        history_count=0,
+        url=None,
+        write_timeout=10.0,
+        read_timeout=10.0,
+        connect_timeout=5.0,
+        authentication=None,
+        scope=OPENC3_SCOPE,
+    ):
+        self.identifier = {
+            "channel": "ConfigEventsChannel",
+            "history_count": history_count,
+        }
+        super().__init__(
+            url=url,
+            write_timeout=write_timeout,
+            read_timeout=read_timeout,
+            connect_timeout=connect_timeout,
+            authentication=authentication,
+            scope=scope,
+        )
+
+
+class LimitsEventsWebSocketApi(CmdTlmWebSocketApi):
+    """Limits Events WebSocket"""
+    
+    def __init__(
+        self,
+        history_count=0,
+        url=None,
+        write_timeout=10.0,
+        read_timeout=10.0,
+        connect_timeout=5.0,
+        authentication=None,
+        scope=OPENC3_SCOPE,
+    ):
+        self.identifier = {
+            "channel": "LimitsEventsChannel",
+            "history_count": history_count,
+        }
+        super().__init__(
+            url=url,
+            write_timeout=write_timeout,
+            read_timeout=read_timeout,
+            connect_timeout=connect_timeout,
+            authentication=authentication,
+            scope=scope,
+        )
+
+
+class TimelineEventsWebSocketApi(CmdTlmWebSocketApi):
+    """Timeline WebSocket"""
+    
+    def __init__(
+        self,
+        history_count=0,
+        url=None,
+        write_timeout=10.0,
+        read_timeout=10.0,
+        connect_timeout=5.0,
+        authentication=None,
+        scope=OPENC3_SCOPE,
+    ):
+        self.identifier = {
+            "channel": "TimelineEventsChannel",
+            "history_count": history_count,
+        }
+        super().__init__(
+            url=url,
+            write_timeout=write_timeout,
+            read_timeout=read_timeout,
+            connect_timeout=connect_timeout,
+            authentication=authentication,
+            scope=scope,
+        )
+
+
+class QueueEventsWebSocketApi(CmdTlmWebSocketApi):
+    """Queue WebSocket"""
+    
+    def __init__(
+        self,
+        history_count=0,
+        url=None,
+        write_timeout=10.0,
+        read_timeout=10.0,
+        connect_timeout=5.0,
+        authentication=None,
+        scope=OPENC3_SCOPE,
+    ):
+        self.identifier = {
+            "channel": "QueueEventsChannel",
+            "history_count": history_count,
+        }
+        super().__init__(
+            url=url,
+            write_timeout=write_timeout,
+            read_timeout=read_timeout,
+            connect_timeout=connect_timeout,
+            authentication=authentication,
+            scope=scope,
+        )
+
+
+class StreamingWebSocketApi(CmdTlmWebSocketApi):
+    """Streaming API WebSocket"""
+    
+    def __init__(
+        self,
+        url=None,
+        write_timeout=10.0,
+        read_timeout=10.0,
+        connect_timeout=5.0,
+        authentication=None,
+        scope=OPENC3_SCOPE,
+    ):
+        self.identifier = {"channel": "StreamingChannel"}
+        super().__init__(
+            url=url,
+            write_timeout=write_timeout,
+            read_timeout=read_timeout,
+            connect_timeout=connect_timeout,
+            authentication=authentication,
+            scope=scope,
+        )
+
+    def add(
+        self,
+        items=None,
+        packets=None,
+        start_time=None,
+        end_time=None,
+        scope=OPENC3_SCOPE,
+    ):
+        """
+        Request to add data to the stream
+        
+        Args:
+            items: [ [ MODE__CMDORTLM__TARGET__PACKET__ITEM__VALUETYPE__REDUCEDTYPE, item_key] ]
+                MODE - RAW, DECOM, REDUCED_MINUTE, REDUCED_HOUR, or REDUCED_DAY
+                CMDORTLM - CMD or TLM
+                TARGET - Target name
+                PACKET - Packet name
+                ITEM - Item Name
+                VALUETYPE - RAW, CONVERTED, FORMATTED, or WITH_UNITS
+                REDUCEDTYPE - MIN, MAX, AVG, STDDEV (only for reduced modes)
+                item_key is an optional shortened name to return the data as
+            packets: [ MODE__CMDORTLM__TARGET__PACKET__VALUETYPE ]
+                MODE - RAW, DECOM, REDUCED_MINUTE, REDUCED_HOUR, or REDUCED_DAY
+                CMDORTLM - CMD or TLM
+                TARGET - Target name
+                PACKET - Packet name
+                VALUETYPE - RAW, CONVERTED, FORMATTED, WITH_UNITS, or PURE (pure means all types as stored in log)
+            start_time: 64-bit nanoseconds from unix epoch - If not present then realtime
+            end_time: 64-bit nanoseconds from unix epoch - If not present stream forever
+            scope: scope name
+        """
+        data_hash = {}
+        data_hash["action"] = "add"
+        if start_time is not None:
+            data_hash["start_time"] = to_nsec_from_epoch(start_time)
+        if end_time is not None:
+            data_hash["end_time"] = to_nsec_from_epoch(end_time)
+        if items:
+            data_hash["items"] = items
+        if packets:
+            data_hash["packets"] = packets
+        data_hash["scope"] = scope
+        data_hash["token"] = self.authentication.token(include_bearer=False)
+        self.write_action(data_hash)
+
+    def remove(self, items=None, packets=None, scope=OPENC3_SCOPE):
+        """
+        Request to remove data from the stream
+        
+        Args:
+            items: [ [ MODE__CMDORTLM__TARGET__PACKET__ITEM__VALUETYPE__REDUCEDTYPE] ]
+                MODE - RAW, DECOM, REDUCED_MINUTE, REDUCED_HOUR, or REDUCED_DAY
+                CMDORTLM - CMD or TLM
+                TARGET - Target name
+                PACKET - Packet name
+                ITEM - Item Name
+                VALUETYPE - RAW, CONVERTED, FORMATTED, or WITH_UNITS
+                REDUCEDTYPE - MIN, MAX, AVG, STDDEV (only for reduced modes)
+            packets: [ MODE__CMDORTLM__TARGET__PACKET__VALUETYPE ]
+                MODE - RAW, DECOM, REDUCED_MINUTE, REDUCED_HOUR, or REDUCED_DAY
+                CMDORTLM - CMD or TLM
+                TARGET - Target name
+                PACKET - Packet name
+                VALUETYPE - RAW, CONVERTED, FORMATTED, WITH_UNITS, or PURE (pure means all types as stored in log)
+            scope: scope name
+        """
+        data_hash = {}
+        data_hash["action"] = "remove"
+        if items:
+            data_hash["items"] = items
+        if packets:
+            data_hash["packets"] = packets
+        data_hash["scope"] = scope
+        data_hash["token"] = self.authentication.token(include_bearer=False)
+        self.write_action(data_hash)
+
+    @classmethod
+    def read_all(
+        cls,
+        items=None,
+        packets=None,
+        start_time=None,
+        end_time=None,
+        scope=OPENC3_SCOPE,
+        timeout=None,
+    ):
+        """
+        Convenience method to read all data until end marker is received.
+        
+        Warning: DATA IS STORED IN RAM. Do not use this with large queries
+        """
+        read_all_start_time = time.time()
+        data = []
+        with cls() as api:
+            api.add(
+                items=items,
+                packets=packets,
+                start_time=start_time,
+                end_time=end_time,
+                scope=scope,
+            )
+            while True:
+                batch = api.read()
+                if len(batch) == 0:
+                    break
+                else:
+                    data += batch
+                if timeout is not None and (time.time() - read_all_start_time) > timeout:
+                    break
+        return data

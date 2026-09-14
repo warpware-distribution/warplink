@@ -1,0 +1,26 @@
+---
+- name: Bit Size
+  required: true
+  description:
+    Bit size of this telemetry item. Zero or Negative values may be used
+    to indicate that a string fills the packet up to the offset from the end of
+    the packet specified by this value.
+  values: \d+
+- name: Data Type
+  required: true
+  description: Data Type of this telemetry item
+  values: <%= %w(INT UINT FLOAT STRING BLOCK) %>
+- name: ID Value
+  required: true
+  description: The value of this telemetry item that uniquely identifies this telemetry packet
+  values: .+
+- name: Description
+  required: false
+  description: Description for this telemetry item which must be enclosed with quotes
+  values: '[''"].*[''"]'
+- name: Endianness
+  required: false
+  description:
+    Indicates if the item is to be interpreted in Big Endian or Little Endian format.
+    See guide on [Little Endian Bitfields](../guides/little-endian-bitfields.md).
+  values: <%= %w(BIG_ENDIAN LITTLE_ENDIAN) %>

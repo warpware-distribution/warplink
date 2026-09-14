@@ -1,0 +1,144 @@
+---
+tcpip_client_interface:
+  parameters:
+    - name: Host
+      required: true
+      description: Machine name to connect to. Can be either a named
+        machine (DNS entry) or IP address.
+      values: .+
+    - name: Write Port
+      required: true
+      description: Port which OpenC3 writes commands to
+      values: \d{2,5}
+    - name: Read Port
+      required: true
+      description: Port which OpenC3 reads telemetry from
+      values: \d{2,5}
+    - name: Write Timeout
+      required: true
+      description: Number of seconds to wait before aborting the write.
+      values: .+
+    - name: Read Timeout
+      required: true
+      description: Number of seconds to wait before aborting the read.
+        Pass 'nil' to block on read.
+      values: .+
+    - name: Protocol Type
+      required: true
+      description: Protocol to apply on the interface data
+      # prettier-ignore
+      values:
+        <%= MetaConfigParser.load('protocols.yaml').to_meta_config_yaml(8) %>
+tcpip_server_interface:
+  parameters:
+    - name: Write Port
+      required: true
+      description: Port which OpenC3 writes commands to
+      values: \d{2,5}
+    - name: Read Port
+      required: true
+      description: Port which OpenC3 reads telemetry from
+      values: \d{2,5}
+    - name: Write Timeout
+      required: true
+      description: Number of seconds to wait before aborting the write.
+      values: .+
+    - name: Read Timeout
+      required: true
+      description: Number of seconds to wait before aborting the read.
+        Pass 'nil' to block on read.
+      values: .+
+    - name: Protocol Type
+      required: true
+      description: Protocol to apply on the interface data
+      # prettier-ignore
+      values:
+        <%= MetaConfigParser.load('protocols.yaml').to_meta_config_yaml(8) %>
+udp_interface:
+  description: The UDP interface uses UDP packets to send and receive telemetry
+    from the target
+  parameters:
+    - name: Host
+      required: true
+      description: Machine name to connect to. Can be either a named
+        machine (DNS entry) or IP address.
+      values: .+
+    - name: Write Port
+      required: true
+      description: Port which OpenC3 writes commands to
+      values: \d{2,5}
+    - name: Read Port
+      required: true
+      description: Port which OpenC3 reads telemetry from
+      values: \d{2,5}
+    - name: Write Source Port
+      required: false
+      description: Port on the local machine to send commands from. Default is
+        'nil' (socket is not bound to an outgoing port).
+      values: \d{2,5}
+    - name: Interface Address
+      required: false
+      description:
+        If the remote machine supports multicast the interface address
+        is used to configure the outgoing multicast address
+      values: .+
+    - name: Time To Live
+      required: false
+      description: The number of intermediate routers allowed before dropping the packet
+      values: .+
+    - name: Write Timeout
+      required: false
+      description: Number of seconds to wait before aborting the write
+      values: .+
+    - name: Read Timeout
+      required: false
+      description:
+        Number of seconds to wait before aborting the read. Default is
+        'nil' (block on read).
+      values: .+
+    - name: Bind Address
+      required: false
+      description: Address to bind UDP ports to
+      values: .+
+serial_interface:
+  description: Connects to a target over a serial port. OpenC3 provides drivers
+    for both Windows and POSIX drivers for UNIX based systems.
+  parameters:
+    - name: Write Port
+      required: true
+      description:
+        Name of the serial port to write, e.g. 'COM1' or '/dev/ttyS0'.
+        Pass 'nil' to disable writing.
+      values: \d{2,5}
+    - name: Read Port
+      required: true
+      description: Name of the serial port to read, e.g. 'COM1' or '/dev/ttyS0'.
+        Pass 'nil' to disable reading.
+      values: \d{2,5}
+    - name: Baud Rate
+      required: true
+      description: Baud rate to read and write
+      values: .+
+    - name: Parity
+      required: true
+      description: Serial port parity
+      values: ["NONE", "EVENT", "ODD"]
+    - name: Stop Bits
+      required: true
+      description: Number of stop bits
+      values: .+
+    - name: Write Timeout
+      required: true
+      description: Number of seconds to wait before aborting the write.
+      values: .+
+    - name: Read Timeout
+      required: true
+      description: Number of seconds to wait before aborting the read.
+        Pass 'nil' to block on read.
+      values: .+
+    - name: Protocol Type
+      required: true
+      description: Protocol to apply on the interface data
+      # prettier-ignore
+      values:
+        <%= MetaConfigParser.load('protocols.yaml').to_meta_config_yaml(8) %>

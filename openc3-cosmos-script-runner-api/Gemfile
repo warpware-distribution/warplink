@@ -1,0 +1,66 @@
+source ENV['RUBYGEMS_URL'] || "https://rubygems.org"
+git_source(:github) { |repo| "https://github.com/#{repo}.git" }
+
+# Ultimately we want to deploy on 3.x but we don't want to mandate it here
+# ruby '3.0'
+
+# Bundle edge Rails instead: gem 'rails', github: 'rails/rails'
+gem 'rails', '~> 7.2.0'
+
+# Use anycable instead of actioncable
+gem "anycable-rails", "~> 1.5"
+gem "anycable", "~> 1.5"
+
+# The following gems are installed in the OpenC3 base container openc3-base
+# which this Dockerfile depends on: puma, redis, nokogiri
+
+# Build JSON APIs with ease. Read more: https://github.com/rails/jbuilder
+# gem 'jbuilder', '~> 2.7'
+# Use prometheus-client for /metrics
+gem 'prometheus-client', '~> 4.0'
+# Use Active Model has_secure_password
+# gem 'bcrypt', '~> 3.1.7'
+
+# Reduces boot times through caching; required in config/boot.rb
+# Capped below 1.24.2: its ISeq compile cache reads sources with
+# File.read(encoding: UTF_8), which transcodes to Encoding.default_internal.
+# openc3.rb sets that to ASCII_8BIT, so any gem source containing a non-ASCII
+# byte (e.g. matrix.rb) fails to load with an UndefinedConversionError.
+gem 'bootsnap', '>= 1.9.3', '< 1.24.2', require: false
+
+# Use Rack CORS for handling Cross-Origin Resource Sharing (CORS), making cross-origin AJAX possible
+gem 'rack-cors', '~> 3.0'
+
+# Use gem to get JSON logs
+gem "rails_semantic_logger", '~> 4.17'
+
+# Only define development/test gems if not in production build
+# Set SKIP_DEV_GEMS=1 in Dockerfile to exclude these groups entirely
+unless ENV['SKIP_DEV_GEMS']
+  group :development, :test do
+    # Call 'byebug' anywhere in the code to stop execution and get a debugger console
+    gem 'byebug', platforms: [:mri, :windows]
+    gem 'rspec-rails', '~> 7.0'
+    gem 'rspec'
+    gem 'simplecov', '~> 0.22'
+    gem 'simplecov-cobertura', '~> 3.0'
+    gem 'rexml', '~> 3.4'
+    # simplecov_json_formatter formatter supports SonarQube
+    # gem 'simplecov_json_formatter', '~> 0.1'
+  end
+
+  group :test do
+    gem 'mock_redis', '~> 0.47'
+  end
+end
+
+# Windows does not include zoneinfo files, so bundle the tzinfo-data gem
+gem 'tzinfo-data'
+
+if ENV['OPENC3_DEVEL']
+  gem 'openc3', :path => ENV['OPENC3_DEVEL']
+elsif ENV['OPENC3_PATH']
+  gem 'openc3', :path => ENV['OPENC3_PATH']
+else
+  gem 'openc3', '6.10.6'
+end

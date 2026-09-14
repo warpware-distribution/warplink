@@ -1,0 +1,102 @@
+# Copyright 2025 OpenC3, Inc.
+# All Rights Reserved.
+#
+# This program is free software; you can modify and/or redistribute it
+# under the terms of the GNU Affero General Public License
+# as published by the Free Software Foundation; version 3 with
+# attribution addendums as found in the LICENSE.txt
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# This file may also be used under the terms of a commercial license
+# if purchased from OpenC3, Inc.
+
+import json
+from openc3.script import API_SERVER
+from openc3.environment import OPENC3_SCOPE
+
+
+def _make_request(action, verb, uri, scope, data=None):
+    """Helper function that makes the request and parses the response"""
+    kwargs = {'scope': scope}
+    if data is not None:
+        kwargs['data'] = data
+        kwargs['json'] = True
+
+    response = API_SERVER.request(verb, uri, **kwargs)
+
+    if response is None:
+        raise RuntimeError(f"Failed to {action}. No response from server.")
+    elif response.status_code not in [200, 201]:
+        try:
+            result = json.loads(response.text)
+            message = result.get('message', 'Unknown error')
+        except (json.JSONDecodeError, AttributeError):
+            message = 'Unknown error'
+        raise RuntimeError(f"Failed to {action} due to {message}")
+
+    return json.loads(response.text)
+
+
+def queue_all(scope: str = OPENC3_SCOPE):
+    """Get all queues"""
+    return _make_request('index queue', 'get', '/openc3-api/queues', scope)
+
+
+def queue_get(name, scope: str = OPENC3_SCOPE):
+    """Get a specific queue"""
+    return _make_request('get queue', 'get', f'/openc3-api/queues/{name}', scope)
+
+
+def queue_list(name, scope: str = OPENC3_SCOPE):
+    """List contents of a queue"""
+    return _make_request('list queue', 'get', f'/openc3-api/queues/{name}/list', scope)
+
+
+def queue_create(name, state='HOLD', scope: str = OPENC3_SCOPE):
+    """Create a new queue"""
+    data = {}
+    data['state'] = state
+    return _make_request('create queue', 'post', f'/openc3-api/queues/{name}', scope, data=data)
+
+
+def queue_hold(name, scope: str = OPENC3_SCOPE):
+    """Hold a queue (pause processing)"""
+    return _make_request('hold queue', 'post', f'/openc3-api/queues/{name}/hold', scope)
+
+
+def queue_release(name, scope: str = OPENC3_SCOPE):
+    """Release a held queue (resume processing)"""
+    return _make_request('release queue', 'post', f'/openc3-api/queues/{name}/release', scope)
+
+
+def queue_disable(name, scope: str = OPENC3_SCOPE):
+    """Disable a queue"""
+    return _make_request('disable queue', 'post', f'/openc3-api/queues/{name}/disable', scope)
+
+
+def queue_exec(name, id=None, scope: str = OPENC3_SCOPE):
+    """Pop a value from the queue at the specified id or first value if no id"""
+    data = {}
+    if id is not None:
+        data['id'] = id
+    return _make_request('exec command', 'post', f'/openc3-api/queues/{name}/exec_command', scope, data=data)
+
+
+def queue_remove(name, id=None, scope: str = OPENC3_SCOPE):
+    """Remove a command from the queue at the specified id"""
+    data = {}
+    if id is not None:
+        data['id'] = id
+    return _make_request('remove command', 'post', f'/openc3-api/queues/{name}/remove_command', scope, data=data)
+
+def queue_delete(name, scope: str = OPENC3_SCOPE):
+    """Delete a queue"""
+    return _make_request('delete queue', 'delete', f'/openc3-api/queues/{name}', scope)
+
+
+# Alias for queue_delete to match Ruby implementation
+queue_destroy = queue_delete

@@ -1,0 +1,39 @@
+SCREEN AUTO AUTO 0.5
+# Apply a setting to all LABELVALUEs
+GLOBAL_SETTING LABELVALUE TEXTCOLOR "#bababa"
+
+VERTICAL
+  TITLE "<%= target_name %> Instrument Health and Status"
+
+  VERTICALBOX "General Telemetry"
+    BUTTON 'Start Collect' 'api.cmd("<%= target_name %> COLLECT with TYPE NORMAL, DURATION 5")'
+    FORMATVALUE <%= target_name %> HEALTH_STATUS COLLECTS "0x%08X" CONVERTED 16
+    LABELVALUE <%= target_name %> HEALTH_STATUS COLLECT_TYPE
+      SETTING TEXTCOLOR WHITE # This overrides the global setting
+    LABELVALUE <%= target_name %> HEALTH_STATUS DURATION
+    LABELVALUE <%= target_name %> HEALTH_STATUS ASCIICMD WITH_UNITS 40
+  END
+
+  VERTICALBOX "Temperatures"
+    LABELVALUELIMITSBAR <%= target_name %> HEALTH_STATUS TEMP1 WITH_UNITS
+    LABELVALUELIMITSBAR <%= target_name %> HEALTH_STATUS TEMP2 CONVERTED 25
+      SUBSETTING 2 WIDTH 160
+    # LABELVALUELIMITSBAR <%= target_name %> HEALTH_STATUS TEMP2 RAW 20 # RAW is not allowed for LIMITSBAR widgets
+    LABELVALUELIMITSBAR <%= target_name %> HEALTH_STATUS TEMP2 FORMATTED
+    LABELVALUELIMITSBAR <%= target_name %> HEALTH_STATUS TEMP2 WITH_UNITS
+    LABELVALUELIMITSBAR <%= target_name %> HEALTH_STATUS TEMP3
+    LABELVALUELIMITSBAR <%= target_name %> HEALTH_STATUS TEMP4
+  END
+
+  VERTICALBOX "Ground Station"
+    LABELVALUE <%= target_name %> HEALTH_STATUS GROUND1STATUS CONVERTED 18
+    LABELVALUE <%= target_name %> HEALTH_STATUS GROUND2STATUS CONVERTED 18
+  END
+  # You can apply settings to an entire box
+  SETTING BACKCOLOR var(--color-data-visualization-2)
+  SETTING TEXTCOLOR BLACK
+
+  <%= render "_footer.txt" %>
+END
+# You can also apply BACKCOLOR to the entire screen
+# SETTING BACKCOLOR var(--color-data-visualization-1)

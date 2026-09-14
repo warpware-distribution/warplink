@@ -1,0 +1,14 @@
+Dockerfile
+# Ignore the Gemfile.lock so it is generated during the container build
+Gemfile.lock
+.git
+.gitignore
+.vscode/
+**/node_modules
+coverage/
+spec/
+test/
+.bundle/
+# Keep the directories but no contents
+log/*
+tmp/*

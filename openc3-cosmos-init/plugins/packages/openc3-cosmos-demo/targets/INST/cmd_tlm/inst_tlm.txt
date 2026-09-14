@@ -1,0 +1,299 @@
+TELEMETRY <%= target_name %> HEALTH_STATUS BIG_ENDIAN "Health and status from the <%= target_name %> target"
+  <%= render "_ccsds_tlm.txt", locals: {apid: 1} %>
+  APPEND_ITEM CMD_ACPT_CNT     32 UINT     "Command accept count"
+  APPEND_ITEM COLLECTS         16 UINT     "Number of collects"
+  APPEND_ITEM TEMP1            16 UINT     "Temperature #1"
+    POLY_READ_CONVERSION  -100.0 0.00305
+    POLY_WRITE_CONVERSION 32768.885246 327.86885
+    UNITS CELSIUS C
+    FORMAT_STRING "%0.3f"
+    LIMITS DEFAULT 1 ENABLED -80.0 -70.0 60.0 80.0 -20.0 20.0
+    LIMITS TVAC 1 ENABLED -80.0 -30.0 30.0 80.0
+    LIMITS_RESPONSE example_limits_response.rb
+  APPEND_ITEM TEMP2            32 FLOAT    "Temperature #2"
+    POLY_READ_CONVERSION -100.0 0.00305
+    POLY_WRITE_CONVERSION 32768.885246 327.86885
+    UNITS CELSIUS C
+    FORMAT_STRING "%0.3f"
+    LIMITS DEFAULT 1 ENABLED -60.0 -60.0 35.0 35.0
+    LIMITS TVAC 1 ENABLED -60.0 20.0 35.0 35.0
+  APPEND_ITEM TEMP3            16 UINT     "Temperature #3"
+    POLY_READ_CONVERSION -100.0 0.00305
+    POLY_WRITE_CONVERSION 32768.885246 327.86885
+    UNITS CELSIUS C
+    FORMAT_STRING "%0.3f"
+    LIMITS DEFAULT 1 ENABLED -25.0 -10.0 50.0 55.0
+    LIMITS TVAC 1 ENABLED -15.0 -10.0 20.0 30.0
+  APPEND_ITEM TEMP4            16 UINT     "Temperature #4"
+    POLY_READ_CONVERSION -100.0 0.00305
+    POLY_WRITE_CONVERSION 32768.885246 327.86885
+    UNITS CELSIUS C
+    FORMAT_STRING "%0.3f"
+    LIMITS DEFAULT 1 ENABLED -80.0 -70.0 60.0 80.0
+  APPEND_ARRAY_ITEM ARY         8 UINT 80 "Array data"
+    UNITS VOLTS V
+  APPEND_ITEM DURATION 32 FLOAT "Most recent collect duration"
+  APPEND_ITEM COLLECT_TYPE 16 UINT "Most recent collect type"
+    STATE NORMAL  0
+    STATE SPECIAL 1
+    STATE ERROR ANY
+  APPEND_ARRAY_ITEM ARY2       64 FLOAT 640 "Double array"
+    UNITS CELSIUS C
+  APPEND_ITEM ASCIICMD 2048 STRING "Most recent ASCIICMD string"
+    STATE "NOOP" "NOOP"
+    STATE "FIRE LASER" "FIRE LASER"
+    STATE "ARM LASER" "ARM LASER"
+  APPEND_ITEM GROUND1STATUS 8 UINT "Ground station #1 status"
+    STATE CONNECTED 1 GREEN
+    STATE UNAVAILABLE 0 YELLOW
+  APPEND_ITEM GROUND2STATUS 8 UINT "Ground station #2 status"
+    STATE CONNECTED 1 GREEN
+    STATE UNAVAILABLE 0 YELLOW
+  APPEND_ITEM BLOCKTEST 80 BLOCK "Block data"
+  APPEND_ITEM BRACKET[0] 8 UINT "Regular item with brackets in the name"
+    LIMITS DEFAULT 1 ENABLED -1 -1 200 250
+  ITEM PACKET_TIME 0 0 DERIVED "Ruby time based on TIMESEC and TIMEUS"
+    READ_CONVERSION unix_time_conversion.rb TIMESEC TIMEUS
+  ITEM TEMP1HIGH 0 0 DERIVED "High-water mark for TEMP1"
+    READ_CONVERSION processor_conversion.rb TEMP1WATER HIGH_WATER
+  ITEM TEMP1LOW 0 0 DERIVED "Low-water mark for TEMP1"
+    READ_CONVERSION processor_conversion.rb TEMP1WATER LOW_WATER
+  ITEM TEMP1MAX 0 0 DERIVED "Maximum of most recent 100 samples for TEMP1"
+    READ_CONVERSION processor_conversion.rb TEMP1STAT MAX
+  ITEM TEMP1MIN 0 0 DERIVED "Minimum of most recent 100 samples for TEMP1"
+    READ_CONVERSION processor_conversion.rb TEMP1STAT MIN
+  ITEM TEMP1MEAN 0 0 DERIVED "Mean of most recent 100 samples for TEMP1"
+    READ_CONVERSION processor_conversion.rb TEMP1STAT MEAN
+  ITEM TEMP1STDDEV 0 0 DERIVED "Stddev of most recent 100 samples for TEMP1"
+    READ_CONVERSION processor_conversion.rb TEMP1STAT STDDEV
+  ITEM TEMP1_MICRO 0 0 DERIVED
+    GENERIC_READ_CONVERSION_START FLOAT 32
+      packet.read('TEMP1') / 1_000_000
+    GENERIC_READ_CONVERSION_END
+  ITEM TEMP1_MEGA 0 0 DERIVED
+    GENERIC_READ_CONVERSION_START FLOAT 32
+      packet.read('TEMP1') * 1_000_000
+    GENERIC_READ_CONVERSION_END
+  # Enable to test the ARRAYPLOT widget with array of array data [[x1,x2,...],[y1,y2,...]]
+  # ITEM POINTS 0 0 DERIVED
+  #   GENERIC_READ_CONVERSION_START UINT 800
+  #     return [
+  #       Array.new(800) { |i| i * 0.1 },
+  #       (0...800).map { |i| Math.sin(2 * Math::PI * i / 800) }
+  #     ]
+  #   GENERIC_READ_CONVERSION_END
+  PROCESSOR TEMP1STAT statistics_processor.rb TEMP1 100
+  PROCESSOR TEMP1WATER watermark_processor.rb TEMP1
+
+TELEMETRY <%= target_name %> ADCS BIG_ENDIAN "Position and attitude data"
+  META TYPE 'struct adcs'
+  <%= render "_ccsds_tlm.txt", locals: {apid: 2} %>
+  ITEM POSX             128 32 FLOAT "Position X"
+    UNITS METERS M
+  ITEM POSY             160 32 FLOAT "Position Y"
+    UNITS METERS M
+  ITEM POSZ             192 32 FLOAT "Position Z"
+    UNITS METERS M
+  ITEM VELX             224 32 FLOAT "Velocity X"
+    UNITS METERS_PER_SECOND MPS
+  ITEM VELY             256 32 FLOAT "Velocity Y"
+    UNITS METERS_PER_SECOND MPS
+  ITEM VELZ             288 32 FLOAT "Velocity Z"
+    UNITS METERS_PER_SECOND MPS
+  ITEM Q1               320 32 FLOAT "Quaternion param 1"
+    FORMAT_STRING "%0.6f"
+    META TYPE 'float32'
+  ITEM Q2               352 32 FLOAT "Quaternion param 2"
+    FORMAT_STRING "%0.6f"
+    META TYPE 'float32'
+  ITEM Q3               384 32 FLOAT "Quaternion param 3"
+    FORMAT_STRING "%0.6f"
+    META TYPE 'float32'
+  ITEM Q4               416 32 FLOAT "Quaternion param 4"
+    FORMAT_STRING "%0.6f"
+    META TYPE 'float32'
+  ITEM BIASX            448 32 FLOAT "Body X rate bias"
+    FORMAT_STRING "%0.6f"
+  ITEM BIASY            480 32 FLOAT "Body Y rate bias"
+    FORMAT_STRING "%0.6f"
+  ITEM BIASZ            512 32 FLOAT "Body Z rate bias"
+    FORMAT_STRING "%0.6f"
+  <% (1..5).each do |i| %>
+    APPEND_ITEM STAR<%= i %>ID 16 UINT "Star <%= i %> id"
+  <% end %>
+  ITEM POSPROGRESS      624 32 FLOAT "Position file progress"
+    FORMAT_STRING "%0.2f"
+  ITEM ATTPROGRESS      656 32 FLOAT "Attitude file progress"
+    FORMAT_STRING "%0.2f"
+  ITEM PACKET_TIME 0 0 DERIVED "Ruby time based on TIMESEC and TIMEUS"
+    READ_CONVERSION unix_time_conversion.rb TIMESEC TIMEUS
+
+TELEMETRY <%= target_name %> PARAMS BIG_ENDIAN "Params set by SETPARAMS command"
+  <%= render "_ccsds_tlm.txt", locals: {apid: 3} %>
+  # ERB syntax:
+  <% (1..5).each do |i| %>
+    APPEND_ITEM VALUE<%= i %> 16 UINT "Value <%= i %> setting"
+      STATE GOOD 0 GREEN
+      STATE BAD 1 RED
+  <% end %>
+  APPEND_ITEM IP_ADDRESS   32 UINT "Encoded IP Address"
+  APPEND_ITEM P_2.2,2      64 INT "Test weird characters"
+  APPEND_ITEM P-3+3=3      64 INT "Test weird characters"
+  APPEND_ITEM P4!@#$%^&*?  64 UINT "Test weird characters"
+  APPEND_ITEM P</5|\>      64 UINT "Test weird characters"
+  APPEND_ITEM P(:6;)       64 UINT "Test weird characters"
+  ITEM PACKET_TIME 0 0 DERIVED "Ruby time based on TIMESEC and TIMEUS"
+    READ_CONVERSION unix_time_conversion.rb TIMESEC TIMEUS
+
+TELEMETRY <%= target_name %> IMAGE BIG_ENDIAN "Packet with image data"
+  <%= render "_ccsds_tlm.txt", locals: {apid: 4} %>
+  APPEND_ITEM BLOCK 8000 BLOCK "Raw Data"
+  APPEND_ITEM IMAGE 0 BLOCK "Image Data"
+  ITEM BYTES 128 32 UINT "First bytes"
+    FORMAT_STRING '0x%08x'
+    OVERLAP # Notify OpenC3 that this is intentionally overlapping the BLOCK field
+  ITEM PACKET_TIME 0 0 DERIVED "Ruby time based on TIMESEC and TIMEUS"
+    READ_CONVERSION unix_time_conversion.rb TIMESEC TIMEUS
+
+TELEMETRY <%= target_name %> MECH BIG_ENDIAN "Mechanism status ©®"
+  <%= render "_ccsds_tlm.txt", locals: {apid: 5} %>
+  APPEND_ITEM EXTRA         32 FLOAT    "Extra item to be deleted"
+  APPEND_ITEM SLRPNL1       32 FLOAT    "Solar panel 1 angle"
+    UNITS DEGREES DEG
+  APPEND_ITEM SLRPNL2       32 FLOAT    "Solar panel 2 angle"
+    UNITS DEGREES DEG
+  APPEND_ITEM SLRPNL3       32 FLOAT    "Solar panel 3 angle"
+    UNITS DEGREES DEG
+  APPEND_ITEM SLRPNL4       32 FLOAT    "Solar panel 4 angle"
+    UNITS DEGREES DEG
+  APPEND_ITEM SLRPNL5       32 FLOAT    "Solar panel 5 angle"
+    UNITS DEGREES DEG
+  APPEND_ITEM CURRENT       32 FLOAT    "Device current"
+    UNITS micro-Ampères µA
+  APPEND_ARRAY_ITEM STRINGS 2048 STRING 0 "Array of strings"
+  ITEM PACKET_TIME 0 0 DERIVED "Ruby time based on TIMESEC and TIMEUS"
+    READ_CONVERSION unix_time_conversion.rb TIMESEC TIMEUS
+
+TELEMETRY <%= target_name %> HIDDEN BIG_ENDIAN "Hidden packet"
+  HIDDEN
+  <%= render "_ccsds_tlm.txt", locals: {apid: 6} %>
+  APPEND_ITEM COUNT 32 UINT "Count for hidden command"
+  ITEM PACKET_TIME 0 0 DERIVED "Ruby time based on TIMESEC and TIMEUS"
+    READ_CONVERSION unix_time_conversion.rb TIMESEC TIMEUS
+
+TELEMETRY <%= target_name %> JSONTLM BIG_ENDIAN "JSON Accessor Telemetry"
+  ACCESSOR JsonAccessor
+  # Template is not required for telemetry, but is useful for simulation
+  TEMPLATE '{"id_item":1, "item1":101, "more": { "item2":12, "item3":3.14, "item4":"Example", "item5":[4, 3, 2, 1] }, "item6": true, "item7": [1, "2", 3.14], "item8": {"a":"b"}, "item9": {"c":"d"} }'
+  APPEND_ID_ITEM ID_ITEM 32 INT 31 "Int Item"
+    KEY $.id_item
+  APPEND_ITEM ITEM1 16 UINT "Int Item 2"
+    KEY $.item1
+    GENERIC_READ_CONVERSION_START UINT 16
+      value * 2
+    GENERIC_READ_CONVERSION_END
+    UNITS CELSIUS C
+  APPEND_ITEM ITEM2 16 UINT "Int Item 3"
+    KEY $.more.item2
+    FORMAT_STRING "0x%X"
+  APPEND_ITEM ITEM3 64 FLOAT "Float Item"
+    KEY $.more.item3
+  APPEND_ITEM ITEM4 128 STRING "String Item"
+    KEY $.more.item4
+  APPEND_ARRAY_ITEM ITEM5 8 UINT 0 "Array Item"
+    KEY $.more.item5
+  APPEND_ITEM ITEM6 8 BOOL "Bool Item"
+    KEY $.item6
+  APPEND_ITEM ITEM7 8 ARRAY "Complex Array Item"
+    KEY $.item7
+  APPEND_ITEM ITEM8 8 OBJECT "Object Item"
+    KEY $.item8
+  APPEND_ITEM ITEM9 8 ANY "Any Item"
+    KEY $.item9
+
+TELEMETRY <%= target_name %> CBORTLM BIG_ENDIAN "CBOR Accessor Telemetry"
+  ACCESSOR CborAccessor
+  # Template is not required for telemetry, but is useful for simulation
+  TEMPLATE_FILE _cbor_template.bin
+  APPEND_ID_ITEM ID_ITEM 32 INT 32 "Int Item"
+    KEY $.id_item
+  APPEND_ITEM ITEM1 16 UINT "Int Item 2"
+    KEY $.item1
+    GENERIC_READ_CONVERSION_START UINT 16
+      value * 2
+    GENERIC_READ_CONVERSION_END
+    UNITS CELSIUS C
+  APPEND_ITEM ITEM2 16 UINT "Int Item 3"
+    KEY $.more.item2
+    FORMAT_STRING "0x%X"
+  APPEND_ITEM ITEM3 64 FLOAT "Float Item"
+    KEY $.more.item3
+  APPEND_ITEM ITEM4 128 STRING "String Item"
+    KEY $.more.item4
+  APPEND_ARRAY_ITEM ITEM5 8 UINT 0 "Array Item"
+    KEY $.more.item5
+
+TELEMETRY <%= target_name %> XMLTLM BIG_ENDIAN "XML Accessor Telemetry"
+  ACCESSOR XmlAccessor
+  # Template is not required for telemetry, but is useful for simulation
+  TEMPLATE '<html><head><script src="3"></script><noscript>101</noscript></head><body><img src="12"/><div><ul><li>3.14</li><li>Example</li></ul></div><div></div></body></html>'
+  APPEND_ID_ITEM ID_ITEM 32 INT 33 "Int Item"
+    KEY "/html/head/script/@src"
+  APPEND_ITEM ITEM1 16 UINT "Int Item 2"
+    KEY "/html/head/noscript/text()"
+    GENERIC_READ_CONVERSION_START UINT 16
+      value * 2
+    GENERIC_READ_CONVERSION_END
+    UNITS CELSIUS C
+  APPEND_ITEM ITEM2 16 UINT "Int Item 3"
+    KEY "/html/body/img/@src"
+    FORMAT_STRING "0x%X"
+  APPEND_ITEM ITEM3 64 FLOAT "Float Item"
+    KEY "/html/body/div/ul/li[1]/text()"
+  APPEND_ITEM ITEM4 128 STRING "String Item"
+    KEY "/html/body/div/ul/li[2]/text()"
+
+TELEMETRY <%= target_name %> HTMLTLM BIG_ENDIAN "HTML Accessor Telemetry"
+  ACCESSOR HtmlAccessor
+  # Template is not required for telemetry, but is useful for simulation
+  TEMPLATE '<!DOCTYPE html><html lang="en"><head><title>4</title><script src="101"></script></head><body><noscript>12</noscript><img src="3.14" alt="An Image"/><p>Example</p><ul><li>1</li><li>3.14</li></ul></body></html>'
+  APPEND_ID_ITEM ID_ITEM 32 INT 34 "Int Item"
+    KEY "/html/head/title/text()"
+  APPEND_ITEM ITEM1 16 UINT "Int Item 2"
+    KEY "/html/head/script/@src"
+    GENERIC_READ_CONVERSION_START UINT 16
+      value * 2
+    GENERIC_READ_CONVERSION_END
+    UNITS CELSIUS C
+  APPEND_ITEM ITEM2 16 UINT "Int Item 3"
+    KEY "/html/body/noscript/text()"
+    FORMAT_STRING "0x%X"
+  APPEND_ITEM ITEM3 64 FLOAT "Float Item"
+    KEY "/html/body/img/@src"
+  APPEND_ITEM ITEM4 128 STRING "String Item"
+    KEY "/html/body/p/text()"
+
+TELEMETRY <%= target_name %> HYBRIDTLM BIG_ENDIAN "Hybrid Accessor Telemetry"
+  APPEND_ITEM CCSDSVER      3 UINT   "CCSDS packet version number (See CCSDS 133.0-B-1)"
+  APPEND_ITEM CCSDSTYPE     1 UINT   "CCSDS packet type (command or telemetry)"
+    STATE TLM 0
+    STATE CMD 1
+  APPEND_ITEM CCSDSSHF      1 UINT   "CCSDS secondary header flag"
+    STATE FALSE 0
+    STATE TRUE 1
+  APPEND_ID_ITEM CCSDSAPID 11 UINT 14 "CCSDS application process id"
+  APPEND_ITEM CCSDSSEQFLAGS 2 UINT   "CCSDS sequence flags"
+    STATE FIRST 1
+    STATE CONT 0
+    STATE LAST 2
+    STATE NOGROUP 3
+  APPEND_ITEM CCSDSSEQCNT  14 UINT   "CCSDS packet sequence count"
+    OVERFLOW TRUNCATE
+  APPEND_ITEM CCSDSLENGTH  16 UINT   "CCSDS packet data length"
+  APPEND_ITEM PKTID 16 UINT
+  APPEND_ITEM JSON_LENGTH 32 UINT
+  APPEND_STRUCTURE JSON 0 CMD <%= target_name %> JSONSTRUCT
+    VARIABLE_BIT_SIZE JSON_LENGTH
+  APPEND_ITEM CBOR_LENGTH 32 UINT
+  APPEND_STRUCTURE CBOR 0 CMD <%= target_name %> CBORSTRUCT
+    VARIABLE_BIT_SIZE CBOR_LENGTH

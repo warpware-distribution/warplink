@@ -1,0 +1,410 @@
+---
+PARAMETER:
+  modifiers:
+    <%= MetaConfigParser.load('parameter_modifiers.yaml').to_meta_config_yaml(4) %>
+  summary: Defines a command parameter in the current command packet
+  parameters:
+    - name: Name
+      required: true
+      description: Name of the parameter. Must be unique within the command.
+      values: '\D\S*'
+    - name: Bit Offset
+      required: true
+      description: Bit offset into the command packet of the Most Significant Bit of this parameter.
+        May be negative to indicate an offset from the end of the packet.
+        Always use a bit offset of 0 for derived parameters.
+      values: '[-]?\d+'
+    <%= MetaConfigParser.load('_params.yaml').to_meta_config_yaml(4) %>
+  example: |
+    PARAMETER SYNC 0 32 UINT 0xDEADBEEF 0xDEADBEEF 0xDEADBEEF "Sync pattern"
+    PARAMETER DATA 32 32 INT MIN MAX 0 "Data value"
+    PARAMETER VALUE 64 32 FLOAT 0 10.5 2.5
+    PARAMETER LABEL 96 96 STRING "OPENC3" "The label to apply"
+    PARAMETER BLOCK 192 0 BLOCK 0x0 "Block of binary data"
+APPEND_PARAMETER:
+  modifiers:
+    <%= MetaConfigParser.load('parameter_modifiers.yaml').to_meta_config_yaml(4) %>
+  summary: Defines a command parameter in the current command packet
+  parameters:
+    - name: Name
+      required: true
+      description: Name of the parameter. Must be unique within the command.
+      values: .+
+    <%= MetaConfigParser.load('_params.yaml').to_meta_config_yaml(4) %>
+  example: |
+    APPEND_PARAMETER SYNC 32 UINT 0xDEADBEEF 0xDEADBEEF 0xDEADBEEF "Sync pattern"
+    APPEND_PARAMETER VALUE 32 FLOAT 0 10.5 2.5
+    APPEND_PARAMETER LABEL 0 STRING "OPENC3" "The label to apply"
+ID_PARAMETER:
+  modifiers:
+    <%= MetaConfigParser.load('parameter_modifiers.yaml').to_meta_config_yaml(4) %>
+  summary: Defines an identification command parameter in the current command packet
+  description: ID parameters are used to identify the binary block of data as a
+    particular command. A command packet may have one or more ID_PARAMETERs and all
+    must match the binary data for the command to be identified.
+  parameters:
+    - name: Name
+      required: true
+      description: Name of the parameter. Must be unique within the command.
+      values: .+
+    - name: Bit Offset
+      required: true
+      description: Bit offset into the command packet of the Most Significant Bit of this parameter.
+        May be negative to indicate an offset from the end of the packet.
+      values: '[-]?\d+'
+    <%= MetaConfigParser.load('_id_params.yaml').to_meta_config_yaml(4) %>
+  example: ID_PARAMETER OPCODE 32 32 UINT 2 2 2 "Opcode identifier"
+APPEND_ID_PARAMETER:
+  modifiers:
+    <%= MetaConfigParser.load('parameter_modifiers.yaml').to_meta_config_yaml(4) %>
+  summary: Defines an identification command parameter in the current command packet
+  description: ID parameters are used to identify the binary block of data as a
+    particular command. A command packet may have one or more ID_PARAMETERs and all
+    must match the binary data for the command to be identified.
+  parameters:
+    - name: Name
+      required: true
+      description: Name of the parameter. Must be unique within the command.
+      values: .+
+    <%= MetaConfigParser.load('_id_params.yaml').to_meta_config_yaml(4) %>
+  example: APPEND_ID_PARAMETER OPCODE 32 UINT 2 2 2 "Opcode identifier"
+ARRAY_PARAMETER:
+  modifiers:
+    <%= MetaConfigParser.load('parameter_modifiers.yaml').to_meta_config_yaml(4) %>
+  summary: Defines a command parameter in the current command packet that is an array
+  parameters:
+    - name: Name
+      required: true
+      description: Name of the parameter. Must be unique within the command.
+      values: .*
+    - name: Bit Offset
+      required: true
+      description: Bit offset into the command packet of the Most Significant Bit of this parameter.
+        May be negative to indicate an offset from the end of the packet.
+        Always use a bit offset of 0 for derived parameters.
+      values: '[-]?\d+'
+    <%= MetaConfigParser.load('_array_params.yaml').to_meta_config_yaml(4) %>
+  example: ARRAY_PARAMETER ARRAY 64 64 FLOAT 640 "Array of 10 64bit floats"
+APPEND_ARRAY_PARAMETER:
+  modifiers:
+    <%= MetaConfigParser.load('parameter_modifiers.yaml').to_meta_config_yaml(4) %>
+  summary: Defines a command parameter in the current command packet that is an array
+  parameters:
+    - name: Name
+      required: true
+      description: Name of the parameter. Must be unique within the command.
+      values: .*
+    <%= MetaConfigParser.load('_array_params.yaml').to_meta_config_yaml(4) %>
+  example: APPEND_ARRAY_PARAMETER ARRAY 64 FLOAT 640 "Array of 10 64bit floats"
+STRUCTURE:
+  modifiers:
+    <%= MetaConfigParser.load('parameter_modifiers.yaml').to_meta_config_yaml(4) %>
+  summary: Adds and flattens a structure (generally a virtual packet) into the current packet. The specific named item is BLOCK type and hidden.
+  since: 6.10.0
+  parameters:
+    - name: Name
+      required: true
+      description: Name of the parameter. Must be unique within the command.
+      values: .*
+    - name: Bit Offset
+      required: true
+      description: Bit offset into the command packet of the Most Significant Bit of this parameter.
+        May be negative to indicate an offset from the end of the packet.
+        Always use a bit offset of 0 for derived parameters.
+      values: '[-]?\d+'
+    - name: Bit Size
+      required: true
+      description: Bit size of this parameter. Zero or Negative values may be used
+        to indicate that a string fills the packet up to the offset from the end of
+        the packet specified by this value. If Bit Offset is 0 and Bit Size is 0 then
+        this is a derived parameter and the Data Type must be set to 'DERIVED'.
+      values: \d+
+    - name: Command or telemetry
+      required: true
+      description: Whether the structure packet is a command or telemetry packet
+      values: <%= %w(CMD COMMAND TLM TELEMETRY) %>
+    - name: Target Name
+      required: true
+      description: Target Name of the structure packet
+      values: .+
+    - name: Packet Name
+      required: true
+      description: Packet Name of the structure packet
+      values: .+
+APPEND_STRUCTURE:
+  modifiers:
+    <%= MetaConfigParser.load('parameter_modifiers.yaml').to_meta_config_yaml(4) %>
+  summary: Adds and flattens a structure (generally a virtual packet) into the current packet. The specific named item is BLOCK type and hidden.
+  since: 6.10.0
+  parameters:
+    - name: Name
+      required: true
+      description: Name of the parameter. Must be unique within the command.
+      values: .*
+    - name: Bit Size
+      required: true
+      description: Bit size of this parameter. Zero or Negative values may be used
+        to indicate that a string fills the packet up to the offset from the end of
+        the packet specified by this value. If Bit Offset is 0 and Bit Size is 0 then
+        this is a derived parameter and the Data Type must be set to 'DERIVED'.
+      values: \d+
+    - name: Command or telemetry
+      required: true
+      description: Whether the structure packet is a command or telemetry packet
+      values: <%= %w(CMD COMMAND TLM TELEMETRY) %>
+    - name: Target Name
+      required: true
+      description: Target Name of the structure packet
+      values: .+
+    - name: Packet Name
+      required: true
+      description: Packet Name of the structure packet
+      values: .+
+SELECT_PARAMETER:
+  modifiers:
+    <%= MetaConfigParser.load('parameter_modifiers.yaml').to_meta_config_yaml(4) %>
+  summary: Selects an existing command parameter for editing
+  description: Must be used in conjunction with SELECT_COMMAND to first select
+    the packet. Typically used to override generated values or make specific changes
+    to commands that only affect a particular instance of a target used multiple times.
+  parameters:
+    - name: Parameter
+      required: true
+      description: Name of the parameter to select for modification
+      values: .+
+  example: |
+    SELECT_COMMAND INST COLLECT
+      SELECT_PARAMETER DURATION
+        # Add units
+        UNITS Seconds S
+DELETE_PARAMETER:
+  summary: Deletes an existing command parameter from the packet definition
+  description: Deleting a parameter from the command definition does not remove the
+    defined space for that parameter. Thus unless you redefine a new parameter, there
+    will be a "hole" in the packet where the data is not accessible. You can
+    use SELECT_COMMAND and then PARAMETER to define a new parameter.
+  since: 4.4.1
+  parameters:
+    - name: Parameter
+      required: true
+      description: Name of the parameter to delete
+      values: .+
+  example: |
+    SELECT_COMMAND INST COLLECT
+      DELETE_PARAMETER DURATION
+HIDDEN:
+  summary: Hides this command from all OpenC3 tools such as Command Sender and Handbook Creator
+  description: Hidden commands do not appear in the Script Runner popup helper when writing scripts.
+    The command still exists in the system and can be sent by scripts.
+DISABLED:
+  summary: Disables this command from being sent
+  description: Hides the command and also disables it from being sent by scripts.
+    Attempts to send DISABLED commands result in an error message.
+DISABLE_MESSAGES:
+  summary: Disable the Server from printing cmd(...) messages. Commands are still logged.
+META:
+  summary: Stores metadata for the current command
+  description: Meta data is user specific data that can be used by custom tools
+    for various purposes. One example is to store additional information needed
+    to generate source code header files.
+  parameters:
+    - name: Meta Name
+      required: true
+      description: Name of the metadata to store
+      values: .*
+    - name: Meta Values
+      required: false
+      description: One or more values to be stored for this Meta Name
+      values: .*
+  example: META FSW_TYPE "struct command"
+HAZARDOUS:
+  summary: Designates the current command as hazardous
+  description: Sending a hazardous command causes a dialog asking for confirmation
+    before sending the command
+  parameters:
+    - name: Description
+      required: false
+      description: Description for why the command is hazardous which must be enclosed with quotes
+      values: "['\"].*['\"]"
+ACCESSOR:
+  summary: Defines the class used to read and write raw values from the packet
+  description: Defines the class that is used too read raw values from the packet. Defaults to BinaryAccessor.
+    For more information see [Accessors](accessors).
+  parameters:
+    - name: Accessor Class Name
+      required: true
+      description: The name of the accessor class
+      values: .+
+    - name: Argument
+      required: false
+      description: Additional argument passed to the accessor class constructor
+      values: .+
+  since: 5.0.10
+SUBPACKETIZER:
+  summary: Defines a class used to break up the packet into subpackets before decom
+  description: Defines a class used to break up the packet into subpackets before decom. Defaults to nil/None.
+  parameters:
+    - name: Subpacketizer Class Name
+      required: true
+      description: The name of the Subpacketizer class
+      values: .+
+    - name: Argument
+      required: false
+      description: Additional argument passed to the Subpacketizer class constructor
+      values: .+
+  since: 6.10.0
+TEMPLATE:
+  summary: Defines a template string used to initialize the command before default values are filled in
+  description: Generally the template string is formatted in JSON or HTML and then values are filled in with
+    command parameters. Must be UTF-8 encoded.
+  parameters:
+    - name: Template
+      required: true
+      description: The template string which should be enclosed in quotes
+      values: "['\"].*['\"]"
+  since: 5.0.10
+TEMPLATE_FILE:
+  summary: Defines a template file used to initialize the command before default values are filled in
+  description: Generally the template file is formatted in JSON or HTML and then values are filled in with
+    command parameters. Can be binary or UTF-8.
+  parameters:
+    - name: Template File Path
+      required: true
+      description: The relative path to the template file. Filename should generally start with an underscore.
+      values: .+
+  since: 5.0.10
+RESPONSE:
+  summary: Indicates the expected telemetry packet response to this command
+  parameters:
+    - name: Target Name
+      required: true
+      description: Target Name of telemetry response packet
+      values: .+
+    - name: Packet Name
+      required: true
+      description: Packet Name of telemetry response packet
+      values: .+
+  since: 5.14.0
+ERROR_RESPONSE:
+  summary: Indicates the expected telemetry packet error response to this command
+  parameters:
+    - name: Target Name
+      required: true
+      description: Target Name of telemetry error response packet
+      values: .+
+    - name: Packet Name
+      required: true
+      description: Packet Name of telemetry error response packet
+      values: .+
+  since: 5.14.0
+RELATED_ITEM:
+  summary: Defines a related telemetry item to this command
+  parameters:
+    - name: Target Name
+      required: true
+      description: Target Name of related telemetry item
+      values: .+
+    - name: Packet Name
+      required: true
+      description: Packet Name of related telemetry item
+      values: .+
+    - name: Item Name
+      required: true
+      description: Item Name of related telemetry item
+      values: .+
+  since: 5.14.0
+SCREEN:
+  summary: Defines a related telemetry screen to this command
+  parameters:
+    - name: Target Name
+      required: true
+      description: Target Name of related telemetry screen
+      values: .+
+    - name: Screen Name
+      required: true
+      description: Screen Name of related telemetry screen
+      values: .+
+  since: 5.14.0
+VIRTUAL:
+  summary: Marks this packet as virtual and not participating in identification
+  description: Used for packet definitions that can be used as structures for items with a given packet.
+  since: 5.18.0
+RESTRICTED:
+  summary: Marks this packet as restricted and will require approval if critical commanding is enabled
+  description: Used as one of the two types of critical commands (HAZARDOUS and RESTRICTED)
+  since: 5.20.0
+SUBPACKET:
+  summary: Marks this packet as as a subpacket which will exclude it from Interface level identification
+  description: Used with a SUBPACKETIZER to breakup up packets into subpackets at decom time
+  since: 6.10.0
+VALIDATOR:
+  summary: Defines a validator class for a command
+  description: Validator class is used to validate the command success or failure with both a pre_check and post_check method.
+  parameters:
+    - name: Class Filename
+      required: true
+      description: The filename which contains the Ruby or Python class. The filename must
+        be named after the class such that the class is a CamelCase version of the
+        underscored filename. For example, 'command_validator.rb' should contain
+        'class CommandValidator'.
+      values: .*
+    - name: Argument
+      required: false
+      description: Additional argument passed to the validator class constructor
+      values: .*
+  ruby_example: |
+    VALIDATOR custom_validator.rb
+
+    Defined in custom_validator.rb:
+
+    require 'openc3/packets/command_validator'
+    class CustomValidator < OpenC3::CommandValidator
+      # Both the pre_check and post_check are passed the command packet that was sent
+      # You can inspect the command in your checks as follows:
+      #   packet.target_name => target name
+      #   packet.packet_name => packet name (command name)
+      #   packet.read("ITEM") => converted value
+      #   packet.read("ITEM", :RAW) => raw value
+      def pre_check(packet)
+        if tlm("TGT PKT ITEM") == 0
+          return [false, "TGT PKT ITEM is 0"]
+        end
+        @cmd_acpt_cnt = tlm("TGT PKT CMD_ACPT_CNT")
+        # Return true to indicate Success, false to indicate Failure,
+        # and nil to indicate Unknown. The second value is the optional message.
+        return [true, nil]
+      end
+      def post_check(packet)
+        wait_check("TGT PKT CMD_ACPT_CNT > #{@cmd_acpt_cnt}", 10)
+        # Return true to indicate Success, false to indicate Failure,
+        # and nil to indicate Unknown. The second value is the optional message.
+        return [true, nil]
+      end
+    end
+
+  python_example: |
+    VALIDATOR custom_validator.py
+
+    Defined in custom_validator.py:
+
+    class CustomValidator(CommandValidator):
+        # Both the pre_check and post_check are passed the command packet that was sent
+        # You can inspect the command in your checks as follows:
+        #   packet.target_name => target name
+        #   packet.packet_name => packet name (command name)
+        #   packet.read("ITEM") => converted value
+        #   packet.read("ITEM", :RAW) => raw value
+        def pre_check(self, command):
+            if tlm("TGT PKT ITEM") == 0:
+                return [False, "TGT PKT ITEM is 0"]
+            self.cmd_acpt_cnt = tlm("INST HEALTH_STATUS CMD_ACPT_CNT")
+            # Return true to indicate Success, false to indicate Failure,
+            # and nil to indicate Unknown. The second value is the optional message.
+            return [True, None]
+
+        def post_check(self, command):
+            wait_check(f"INST HEALTH_STATUS CMD_ACPT_CNT > {self.cmd_acpt_cnt}", 10)
+            # Return true to indicate Success, false to indicate Failure,
+            # and nil to indicate Unknown. The second value is the optional message.
+            return [True, None]
+  since: 5.19.0

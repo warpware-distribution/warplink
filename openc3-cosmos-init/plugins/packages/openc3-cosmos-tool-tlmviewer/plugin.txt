@@ -1,0 +1,4 @@
+TOOL tlmviewer "Telemetry Viewer"
+  INLINE_URL main.js
+  ICON mdi-monitor-dashboard
+  POSITION 7

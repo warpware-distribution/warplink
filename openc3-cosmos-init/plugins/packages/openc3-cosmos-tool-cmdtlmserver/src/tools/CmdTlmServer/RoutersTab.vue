@@ -1,0 +1,256 @@
+<!--
+# Copyright 2022 Ball Aerospace & Technologies Corp.
+# All Rights Reserved.
+#
+# This program is free software; you can modify and/or redistribute it
+# under the terms of the GNU Affero General Public License
+# as published by the Free Software Foundation; version 3 with
+# attribution addendums as found in the LICENSE.txt
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# Modified by OpenC3, Inc.
+# All changes Copyright 2022, OpenC3, Inc.
+# All Rights Reserved
+#
+# This file may also be used under the terms of a commercial license
+# if purchased from OpenC3, Inc.
+-->
+
+<template>
+  <v-card>
+    <v-card-title class="d-flex align-center justify-content-space-between">
+      {{ data.length }} Routers
+      <v-spacer />
+      <v-text-field
+        v-model="search"
+        label="Search"
+        prepend-inner-icon="mdi-magnify"
+        clearable
+        variant="outlined"
+        density="compact"
+        single-line
+        hide-details
+        class="search"
+      />
+    </v-card-title>
+    <v-data-table
+      :headers="headers"
+      :items="data"
+      :search="search"
+      :custom-sort="sortTable"
+      :items-per-page="10"
+      :items-per-page-options="[10, 20, -1]"
+      multi-sort
+      data-test="routers-table"
+    >
+      <template #item.connect="{ item }">
+        <v-btn
+          block
+          color="primary"
+          :disabled="buttonsDisabled"
+          @click="connectDisconnect(item)"
+        >
+          {{ item.connect }}
+        </v-btn>
+      </template>
+      <template #item.details="{ item }">
+        <v-btn block color="primary" @click="details(item)"> Details </v-btn>
+      </template>
+      <template #item.connected="{ item }">
+        <span :class="item.connectedClass">
+          {{ item.connected }}
+        </span>
+      </template>
+    </v-data-table>
+  </v-card>
+  <!-- Router Details Dialog -->
+  <v-overlay
+    :model-value="detailsDialog"
+    class="align-center justify-center"
+    @after-leave="clearDialog"
+  >
+    <v-card
+      width="80vw"
+      height="80vh"
+      class="d-flex flex-column"
+      style="
+        position: fixed;
+        top: 50%;
+        z-index: 2400;
+        left: 50%;
+        transform: translate(-50%, -50%);
+      "
+    >
+      <v-card-title class="d-flex align-center flex-shrink-0">
+        Router Connection Map: {{ selectedRouter?.name }}
+        <v-spacer />
+        <v-btn icon="mdi-close" variant="text" @click="detailsDialog = false" />
+      </v-card-title>
+      <v-card-text class="flex-grow-1 pa-4">
+        <InterfaceFlowChart :router-details="routerDetails" />
+      </v-card-text>
+    </v-card>
+  </v-overlay>
+</template>
+
+<script>
+import Updater from './Updater'
+import InterfaceFlowChart from './InterfaceComponents/InterfaceFlowChart.vue'
+
+export default {
+  components: {
+    InterfaceFlowChart,
+  },
+  mixins: [Updater],
+  props: {
+    tabId: { type: Number, default: null },
+    curTab: { type: Number, default: null },
+  },
+  data() {
+    return {
+      search: '',
+      data: [],
+      buttonsDisabled: false,
+      detailsDialog: false,
+      selectedRouter: null,
+      routerDetails: null,
+      headers: [
+        { title: 'Name', key: 'name' },
+        {
+          title: 'Action',
+          key: 'connect',
+          sortable: false,
+          filterable: false,
+        },
+        { title: 'Connected', key: 'connected' },
+        { title: 'Clients', key: 'clients' },
+        { title: 'Tx bytes', key: 'tx_bytes' },
+        { title: 'Rx bytes', key: 'rx_bytes' },
+        { title: 'Cmd pkts', key: 'cmd_pkts' },
+        { title: 'Tlm pkts', key: 'tlm_pkts' },
+        { title: 'Details', key: 'details' },
+      ],
+    }
+  },
+  methods: {
+    clearDialog() {
+      this.detailsDialog = false
+    },
+    // Custom sort algorithm to allow the connected column to be sorted by CONNECTED first
+    sortTable(items, index, isDesc) {
+      items.sort((a, b) => {
+        for (let i = 0; i < index.length; i++) {
+          let column = index[i]
+          let desc = isDesc[i]
+
+          if (column === 'connected') {
+            // Items are the same so continue to let subsequent column sorts apply
+            if (a[column] === b[column]) {
+              continue
+            }
+            if (!desc) {
+              if (a[column] === 'CONNECTED') {
+                return -1
+              } else {
+                return 1
+              }
+            } else {
+              if (a[column] === 'CONNECTED') {
+                return 1
+              } else {
+                return -1
+              }
+            }
+          } else if (column === 'name') {
+            // Items are the same so continue to let subsequent column sorts apply
+            if (a[column] === b[column]) {
+              continue
+            }
+            if (!desc) {
+              // Strings so use localeCompare to sort
+              return a[column].localeCompare(b[column])
+            } else {
+              return b[column].localeCompare(a[column])
+            }
+          } else {
+            // Items are the same so continue to let subsequent column sorts apply
+            if (a[column] === b[column]) {
+              continue
+            }
+            if (!desc) {
+              // The rest of the columns are numbers so just subtract to sort
+              return a[column] - b[column]
+            } else {
+              return b[column] - a[column]
+            }
+          }
+        }
+      })
+      return items
+    },
+    connectDisconnect(item) {
+      this.buttonsDisabled = true
+      if (item.connected === 'DISCONNECTED') {
+        this.api.connect_router(item.name)
+      } else {
+        this.api.disconnect_router(item.name)
+      }
+    },
+    details(item) {
+      this.selectedRouter = item
+      this.routerDetails = null
+
+      this.api
+        .router_details(item.name)
+        .then((details) => {
+          this.routerDetails = {}
+          this.routerDetails[item.name] = details
+          this.detailsDialog = true
+        })
+        .catch((error) => {
+          // eslint-disable-next-line no-console
+          console.error('Failed to fetch router details:', error)
+          this.routerDetails = null
+        })
+    },
+    update() {
+      if (this.tabId != this.curTab) return
+      this.api.get_all_router_info().then((info) => {
+        this.data = [] // Clear the old data
+        for (let int of info) {
+          let connect = null
+          let connectedClass = null
+          if (int[1] == 'DISCONNECTED') {
+            connect = 'Connect'
+            connectedClass = 'openc3-white'
+          } else if (int[1] == 'CONNECTED') {
+            connect = 'Disconnect'
+            connectedClass = 'openc3-green'
+          } else {
+            connect = 'Cancel'
+            connectedClass = 'openc3-red'
+          }
+          this.data.push({
+            name: int[0],
+            connect: connect,
+            connectedClass: connectedClass,
+            connected: int[1],
+            clients: int[2],
+            tx_q_size: int[3],
+            rx_q_size: int[4],
+            tx_bytes: int[5],
+            rx_bytes: int[6],
+            cmd_pkts: int[7],
+            tlm_pkts: int[8],
+          })
+        }
+        this.buttonsDisabled = false
+      })
+    },
+  },
+}
+</script>

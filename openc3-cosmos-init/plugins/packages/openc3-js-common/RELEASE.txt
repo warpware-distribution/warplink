@@ -1,0 +1,3 @@
+pnpm publish --access public
+or
+pnpm publish --tag beta --access public

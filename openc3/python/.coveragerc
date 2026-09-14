@@ -1,0 +1,9 @@
+[run]
+omit =
+    # omit anything in the test directory
+    test/*
+    # omit everything in site-packages (python source)
+    */site-packages/*
+    # omit temp files
+    /tmp/*
+    /private/*

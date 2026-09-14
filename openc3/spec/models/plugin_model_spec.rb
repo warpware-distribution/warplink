@@ -1,0 +1,546 @@
+# encoding: ascii-8bit
+
+# Copyright 2022 Ball Aerospace & Technologies Corp.
+# All Rights Reserved.
+#
+# This program is free software; you can modify and/or redistribute it
+# under the terms of the GNU Affero General Public License
+# as published by the Free Software Foundation; version 3 with
+# attribution addendums as found in the LICENSE.txt
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# Modified by OpenC3, Inc.
+# All changes Copyright 2026, OpenC3, Inc.
+# All Rights Reserved
+#
+# This file may also be used under the terms of a commercial license
+# if purchased from OpenC3, Inc.
+
+require 'spec_helper'
+require 'openc3/models/plugin_model'
+require 'openc3/utilities/aws_bucket'
+
+module OpenC3
+  describe PluginModel do
+    # Simple URL that is valid for testing (starts with /)
+    URL = "URL /myurl"
+
+    before(:each) do
+      mock_redis()
+    end
+
+    describe "self.get" do
+      it "returns the specified plugin" do
+        model = PluginModel.new(name: "TEST1", scope: "DEFAULT")
+        model.create
+        model = PluginModel.new(name: "TEST2", scope: "OTHER")
+        model.create
+        names = PluginModel.names(scope: "DEFAULT")
+        plugin = PluginModel.get(name: names[0], scope: "DEFAULT")
+        expect(plugin["name"]).to eq("TEST1__0")
+      end
+    end
+
+    describe "self.names" do
+      it "returns all plugin names" do
+        model = PluginModel.new(name: "TEST", scope: "DEFAULT")
+        model.create
+        model = PluginModel.new(name: "SPEC", scope: "DEFAULT")
+        model.create
+        model = PluginModel.new(name: "OTHER", scope: "OTHER")
+        model.create
+        names = PluginModel.names(scope: "DEFAULT")
+        # contain_exactly doesn't care about ordering and neither do we
+        expect(names).to contain_exactly("TEST__0", "SPEC__0")
+        names = PluginModel.names(scope: "OTHER")
+        expect(names).to contain_exactly("OTHER__0")
+      end
+    end
+
+    describe "self.all" do
+      it "returns all the parsed plugins" do
+        model = PluginModel.new(name: "TEST", scope: "DEFAULT")
+        model.create
+        model = PluginModel.new(name: "SPEC", scope: "DEFAULT")
+        model.create
+        all = PluginModel.all(scope: "DEFAULT")
+        expect(all.keys).to contain_exactly("TEST__0", "SPEC__0")
+      end
+    end
+
+    describe "self.install_phase1" do
+      it "parses the plugin variables" do
+        expect(GemModel).to receive(:put)
+        gem = double("gem")
+        expect(gem).to receive(:extract_files) do |path|
+          File.open("#{path}/plugin.txt", 'w') do |file|
+            file.puts "VARIABLE VAR1 10"
+            file.puts "VARIABLE VAR2 HI THERE"
+          end
+        end
+        expect(Gem::Package).to receive(:new).and_return(gem)
+        model = PluginModel.install_phase1(__FILE__, scope: "DEFAULT")
+        expect(model['name']).to eql File.basename(__FILE__)
+        expect(model['variables']['VAR1']).to eq({ 'value' => '10' })
+        expect(model['variables']['VAR2']).to eq({ 'value' => 'HI THERE' })
+      end
+
+      it "parses VARIABLE_DESCRIPTION" do
+        expect(GemModel).to receive(:put)
+        gem = double("gem")
+        expect(gem).to receive(:extract_files) do |path|
+          File.open("#{path}/plugin.txt", 'w') do |file|
+            file.puts "VARIABLE port 8080"
+            file.puts '  VARIABLE_DESCRIPTION "TCP port for the connection"'
+          end
+        end
+        expect(Gem::Package).to receive(:new).and_return(gem)
+        model = PluginModel.install_phase1(__FILE__, scope: "DEFAULT")
+        expect(model['variables']['port']).to eq({
+          'value' => '8080',
+          'description' => 'TCP port for the connection'
+        })
+      end
+
+      it "parses VARIABLE_STATE" do
+        expect(GemModel).to receive(:put)
+        gem = double("gem")
+        expect(gem).to receive(:extract_files) do |path|
+          File.open("#{path}/plugin.txt", 'w') do |file|
+            file.puts "VARIABLE my_target INST"
+            file.puts '  VARIABLE_DESCRIPTION "Select the target"'
+            file.puts '  VARIABLE_STATE "Primary instrument" INST'
+            file.puts '  VARIABLE_STATE "Secondary instrument" INST2'
+          end
+        end
+        expect(Gem::Package).to receive(:new).and_return(gem)
+        model = PluginModel.install_phase1(__FILE__, scope: "DEFAULT")
+        expect(model['variables']['my_target']).to eq({
+          'value' => 'INST',
+          'description' => 'Select the target',
+          'options' => [
+            { 'value' => 'INST', 'text' => 'Primary instrument' },
+            { 'value' => 'INST2', 'text' => 'Secondary instrument' }
+          ]
+        })
+      end
+
+      it "raises error for VARIABLE_DESCRIPTION without VARIABLE" do
+        expect(GemModel).to receive(:put)
+        gem = double("gem")
+        expect(gem).to receive(:extract_files) do |path|
+          File.open("#{path}/plugin.txt", 'w') do |file|
+            file.puts 'VARIABLE_DESCRIPTION "Description"'
+          end
+        end
+        expect(Gem::Package).to receive(:new).and_return(gem)
+        expect { PluginModel.install_phase1(__FILE__, scope: "DEFAULT") }.to raise_error(/VARIABLE_DESCRIPTION must follow a VARIABLE definition/)
+      end
+
+      it "raises error for VARIABLE_STATE without VARIABLE" do
+        expect(GemModel).to receive(:put)
+        gem = double("gem")
+        expect(gem).to receive(:extract_files) do |path|
+          File.open("#{path}/plugin.txt", 'w') do |file|
+            file.puts 'VARIABLE_STATE "Display Text" VALUE'
+          end
+        end
+        expect(Gem::Package).to receive(:new).and_return(gem)
+        expect { PluginModel.install_phase1(__FILE__, scope: "DEFAULT") }.to raise_error(/VARIABLE_STATE must follow a VARIABLE definition/)
+      end
+
+      it "processes existing plugin.txt lines" do
+        expect(GemModel).to receive(:put)
+        gem = double("gem")
+        # No gem.extract_files because we're using the existing
+        existing = []
+        existing << "VARIABLE VAR1 11"
+        existing << "VARIABLE VAR2 NOPE"
+        expect(Gem::Package).to receive(:new).and_return(gem)
+        model = PluginModel.install_phase1(__FILE__, existing_plugin_txt_lines: existing, process_existing: true, scope: "DEFAULT")
+        expect(model['name']).to eql File.basename(__FILE__)
+        expect(model['variables']['VAR1']).to eq({ 'value' => '11' })
+        expect(model['variables']['VAR2']).to eq({ 'value' => 'NOPE' })
+      end
+
+      it "processes existing variables in new format" do
+        expect(GemModel).to receive(:put)
+        gem = double("gem")
+        # No gem.extract_files because we're using the existing
+        existing_plugin_txt = []
+        existing_plugin_txt << "VARIABLE VAR1 11"
+        existing_plugin_txt << "VARIABLE VAR2 NOPE"
+        existing_vars = { "VAR1" => { 'value' => "12" }, "VAR2" => { 'value' => "YES" } }
+        expect(Gem::Package).to receive(:new).and_return(gem)
+        model = PluginModel.install_phase1(__FILE__, existing_variables: existing_vars, existing_plugin_txt_lines: existing_plugin_txt, process_existing: true, scope: "DEFAULT")
+        expect(model['name']).to eql File.basename(__FILE__)
+        expect(model['variables']['VAR1']['value']).to eq('12')
+        expect(model['variables']['VAR2']['value']).to eq('YES')
+      end
+
+      it "processes existing variables in old format for backwards compatibility" do
+        expect(GemModel).to receive(:put)
+        gem = double("gem")
+        # No gem.extract_files because we're using the existing
+        existing_plugin_txt = []
+        existing_plugin_txt << "VARIABLE VAR1 11"
+        existing_plugin_txt << "VARIABLE VAR2 NOPE"
+        # Old format: simple string values
+        existing_vars = { "VAR1" => "12", "VAR2" => "YES" }
+        expect(Gem::Package).to receive(:new).and_return(gem)
+        model = PluginModel.install_phase1(__FILE__, existing_variables: existing_vars, existing_plugin_txt_lines: existing_plugin_txt, process_existing: true, scope: "DEFAULT")
+        expect(model['name']).to eql File.basename(__FILE__)
+        expect(model['variables']['VAR1']['value']).to eq('12')
+        expect(model['variables']['VAR2']['value']).to eq('YES')
+      end
+
+      it "does not allow reserved VARIABLE names" do
+        allow(GemModel).to receive(:put)
+        gem = double("gem")
+        allow(gem).to receive(:extract_files) do |path|
+          File.open("#{path}/plugin.txt", 'w') do |file|
+            file.puts "VARIABLE target_name name"
+          end
+        end
+        allow(Gem::Package).to receive(:new).and_return(gem)
+        expect { PluginModel.install_phase1(__FILE__, scope: "DEFAULT") }.to raise_error(/VARIABLE name 'target_name' is reserved/)
+
+        allow(gem).to receive(:extract_files) do |path|
+          File.open("#{path}/plugin.txt", 'w') do |file|
+            file.puts "VARIABLE microservice_name name"
+          end
+        end
+        expect { PluginModel.install_phase1(__FILE__, scope: "DEFAULT") }.to raise_error(/VARIABLE name 'microservice_name' is reserved/)
+      end
+    end
+
+    describe "self.install_phase2" do
+      it "creates the plugin by deploying models in the plugin.txt" do
+        s3 = instance_double("Aws::S3::Client").as_null_object
+        allow(Aws::S3::Client).to receive(:new).and_return(s3)
+
+        expect(GemModel).to receive(:get).and_return("my_plugin.gem")
+        gem = double("gem")
+        expect(gem).to receive(:extract_files) do |path|
+          File.open("#{path}/plugin.txt", 'w') do |file|
+            file.puts "TOOL <%= folder %> <%= name %>"
+            file.puts "  #{URL}"
+            file.puts "TARGET <%= folder %> <%= name %>"
+          end
+        end
+        expect(Gem::Package).to receive(:new).and_return(gem)
+        spec = double("spec")
+        allow(gem).to receive(:spec).and_return(spec)
+        allow(spec).to receive(:runtime_dependencies).and_return([])
+        allow(spec).to receive(:metadata).and_return({})
+        allow(spec).to receive(:summary).and_return("Test plugin")
+        allow(spec).to receive(:description).and_return("Test plugin description")
+        allow(spec).to receive(:licenses).and_return([])
+        allow(spec).to receive(:homepage).and_return(nil)
+
+        # Variables in new format with 'value' key
+        variables = { "folder" => { "value" => "THE_FOLDER" }, "name" => { "value" => "THE_NAME" } }
+        # ERB variables are extracted as simple key-value pairs
+        erb_variables = { "folder" => "THE_FOLDER", "name" => "THE_NAME", "scope" => 'DEFAULT' }
+        # Just stub the instance deploy method
+        expect(GemModel).to receive(:install).and_return(nil)
+        expect_any_instance_of(ToolModel).to receive(:deploy).with(anything, erb_variables, validate_only: false).and_return(nil)
+        expect_any_instance_of(TargetModel).to receive(:deploy).with(anything, erb_variables, validate_only: false).and_return(nil)
+        plugin_model = PluginModel.install_phase2({"name" => "name", "variables" => variables, "plugin_txt_lines" => ["TOOL THE_FOLDER THE_NAME", "  #{URL}", "TARGET THE_FOLDER THE_NAME"]}, scope: "DEFAULT")
+        expect(plugin_model['needs_dependencies']).to eql false
+      end
+
+      it "raises on non-lowercase screen file names" do
+        s3 = instance_double("Aws::S3::Client").as_null_object
+        allow(Aws::S3::Client).to receive(:new).and_return(s3)
+
+        expect(GemModel).to receive(:get).and_return("my_plugin.gem")
+        gem = double("gem")
+        expect(gem).to receive(:extract_files) do |path|
+          Dir.mkdir(File.join(path, 'screens'))
+          File.open("#{path}/screens/SCREEN.txt", 'w') do |file|
+            file.puts "SCREEN"
+          end
+        end
+        expect(Gem::Package).to receive(:new).and_return(gem)
+        expect(GemModel).to receive(:install).and_return(nil)
+        expect { PluginModel.install_phase2({"name" => "name", "variables" => {}, "plugin_txt_lines" => []}, scope: "DEFAULT") }.to raise_error(/Screen filenames must be lowercase/)
+      end
+
+      it "raise on unknown keywords" do
+        s3 = instance_double("Aws::S3::Client").as_null_object
+        allow(Aws::S3::Client).to receive(:new).and_return(s3)
+
+        plugin_txt_lines = []
+        plugin_txt_lines << "  UNKNOWN"
+
+        expect(GemModel).to receive(:get).and_return("my_plugin.gem")
+        gem = double("gem")
+        expect(gem).to receive(:extract_files) do |path|
+          File.open("#{path}/plugin.txt", 'w') do |file|
+            plugin_txt_lines.each { |line| file.puts line }
+          end
+          Dir.mkdir(File.join(path, 'lib')) # This causes needs_dependencies to be true
+        end
+        expect(Gem::Package).to receive(:new).and_return(gem)
+        spec = double("spec")
+        allow(gem).to receive(:spec).and_return(spec)
+        allow(spec).to receive(:runtime_dependencies).and_return([])
+        allow(spec).to receive(:metadata).and_return({})
+        allow(spec).to receive(:summary).and_return("Test plugin")
+        allow(spec).to receive(:description).and_return("Test plugin description")
+        allow(spec).to receive(:licenses).and_return([])
+        allow(spec).to receive(:homepage).and_return(nil)
+
+        # Just stub the instance deploy method
+        expect(GemModel).to receive(:install).and_return(nil)
+        expect { PluginModel.install_phase2({"name" => "name", "variables" => {}, "plugin_txt_lines" => plugin_txt_lines}, scope: "DEFAULT") }.to raise_error(/Invalid keyword 'UNKNOWN'/)
+      end
+
+      it "needs_dependencies if there is a top level lib folder" do
+        s3 = instance_double("Aws::S3::Client").as_null_object
+        allow(Aws::S3::Client).to receive(:new).and_return(s3)
+
+        plugin_txt_lines = []
+        plugin_txt_lines << "  TOOL THE_FOLDER THE_NAME"
+        plugin_txt_lines << "    #{URL}"
+        plugin_txt_lines << "  TARGET THE_FOLDER THE_NAME"
+
+        expect(GemModel).to receive(:get).and_return("my_plugin.gem")
+        gem = double("gem")
+        expect(gem).to receive(:extract_files) do |path|
+          File.open("#{path}/plugin.txt", 'w') do |file|
+            plugin_txt_lines.each { |line| file.puts line }
+          end
+          Dir.mkdir(File.join(path, 'lib')) # This causes needs_dependencies to be true
+        end
+        expect(Gem::Package).to receive(:new).and_return(gem)
+        spec = double("spec")
+        allow(gem).to receive(:spec).and_return(spec)
+        allow(spec).to receive(:runtime_dependencies).and_return([])
+        allow(spec).to receive(:metadata).and_return({})
+        allow(spec).to receive(:summary).and_return("Test plugin")
+        allow(spec).to receive(:description).and_return("Test plugin description")
+        allow(spec).to receive(:licenses).and_return([])
+        allow(spec).to receive(:homepage).and_return(nil)
+
+        # Just stub the instance deploy method
+        expect(GemModel).to receive(:install).and_return(nil)
+        expect_any_instance_of(ToolModel).to receive(:deploy).with(anything, {"scope" => 'DEFAULT'}, validate_only: false).and_return(nil)
+        expect_any_instance_of(TargetModel).to receive(:deploy).with(anything, {"scope" => 'DEFAULT'}, validate_only: false).and_return(nil)
+        plugin_model = PluginModel.install_phase2({"name" => "name", "variables" => {}, "plugin_txt_lines" => plugin_txt_lines}, scope: "DEFAULT")
+        expect(plugin_model['needs_dependencies']).to eql true
+      end
+
+      it "needs_dependencies if runtime_dependencies returns a non-empty list" do
+        s3 = instance_double("Aws::S3::Client").as_null_object
+        allow(Aws::S3::Client).to receive(:new).and_return(s3)
+
+        plugin_txt_lines = []
+        plugin_txt_lines << "  TOOL THE_FOLDER THE_NAME"
+        plugin_txt_lines << "    #{URL}"
+        plugin_txt_lines << "  TARGET THE_FOLDER THE_NAME"
+
+        expect(GemModel).to receive(:get).and_return("my_plugin.gem")
+        gem = double("gem")
+        expect(gem).to receive(:extract_files) do |path|
+          File.open("#{path}/plugin.txt", 'w') do |file|
+            plugin_txt_lines.each { |line| file.puts line }
+          end
+        end
+        expect(Gem::Package).to receive(:new).and_return(gem)
+        spec = double("spec")
+        allow(gem).to receive(:spec).and_return(spec)
+        allow(spec).to receive(:runtime_dependencies).and_return(['something']) # This causes needs_dependencies to be true
+        allow(spec).to receive(:metadata).and_return({})
+        allow(spec).to receive(:summary).and_return("Test plugin")
+        allow(spec).to receive(:description).and_return("Test plugin description")
+        allow(spec).to receive(:licenses).and_return([])
+        allow(spec).to receive(:homepage).and_return(nil)
+
+        # Just stub the instance deploy method
+        expect(GemModel).to receive(:install).and_return(nil)
+        expect_any_instance_of(ToolModel).to receive(:deploy).with(anything, {"scope" => 'DEFAULT'}, validate_only: false).and_return(nil)
+        expect_any_instance_of(TargetModel).to receive(:deploy).with(anything, {"scope" => 'DEFAULT'}, validate_only: false).and_return(nil)
+        plugin_model = PluginModel.install_phase2({"name" => "name", "variables" => {}, "plugin_txt_lines" => plugin_txt_lines}, scope: "DEFAULT")
+        expect(plugin_model['needs_dependencies']).to eql true
+      end
+
+      it "needs_dependencies if NEEDS_DEPENDENCIES is present" do
+        s3 = instance_double("Aws::S3::Client").as_null_object
+        allow(Aws::S3::Client).to receive(:new).and_return(s3)
+
+        plugin_txt_lines = []
+        plugin_txt_lines << "  TOOL THE_FOLDER THE_NAME"
+        plugin_txt_lines << "    #{URL}"
+        plugin_txt_lines << "  TARGET THE_FOLDER THE_NAME"
+        plugin_txt_lines << "  NEEDS_DEPENDENCIES"
+
+        expect(GemModel).to receive(:get).and_return("my_plugin.gem")
+        gem = double("gem")
+        expect(gem).to receive(:extract_files) do |path|
+          File.open("#{path}/plugin.txt", 'w') do |file|
+            plugin_txt_lines.each { |line| file.puts line }
+          end
+        end
+        expect(Gem::Package).to receive(:new).and_return(gem)
+        spec = double("spec")
+        allow(gem).to receive(:spec).and_return(spec)
+        allow(spec).to receive(:runtime_dependencies).and_return([])
+        allow(spec).to receive(:metadata).and_return({})
+        allow(spec).to receive(:summary).and_return("Test plugin")
+        allow(spec).to receive(:description).and_return("Test plugin description")
+        allow(spec).to receive(:licenses).and_return([])
+        allow(spec).to receive(:homepage).and_return(nil)
+
+        # Just stub the instance deploy method
+        expect(GemModel).to receive(:install).and_return(nil)
+        expect_any_instance_of(ToolModel).to receive(:deploy).with(anything, {"scope" => 'DEFAULT'}, validate_only: false).and_return(nil)
+        expect_any_instance_of(TargetModel).to receive(:deploy).with(anything, {"scope" =>'DEFAULT'}, validate_only: false).and_return(nil)
+        plugin_model = PluginModel.install_phase2({"name" => "name", "variables" => {}, "plugin_txt_lines" => plugin_txt_lines}, scope: "DEFAULT")
+        expect(plugin_model['needs_dependencies']).to eql true
+      end
+    end
+
+    describe "self.undeploy" do
+      before(:each) do
+        local_s3()
+      end
+
+      after(:each) do
+        local_s3_unset()
+      end
+
+      it "destroys all models associated with the plugin" do
+        tool = ToolModel.new(name: "TOOL", folder_name: "TOOL", scope: "DEFAULT", plugin: "PLUG")
+        tool.create
+        # Create a tool in another plugin which should not get destroyed
+        tool2 = ToolModel.new(name: "ANOTHER", folder_name: "ANOTHER", scope: "DEFAULT", plugin: "OTHER")
+        tool2.create
+        expect_any_instance_of(ToolModel).to receive(:undeploy).once # Only one gets destroyed
+        target = TargetModel.new(folder_name: "TEST", name: "TARGET", scope: "DEFAULT", plugin: "PLUG")
+        target.create
+        expect_any_instance_of(TargetModel).to receive(:undeploy).once
+        interface = InterfaceModel.new(name: "TARGET", scope: "DEFAULT", plugin: "PLUG")
+        interface.create
+        expect_any_instance_of(InterfaceModel).to receive(:undeploy).once
+        router = RouterModel.new(name: "TARGET", scope: "DEFAULT", plugin: "PLUG")
+        router.create
+        expect_any_instance_of(RouterModel).to receive(:undeploy).once
+        uservice = MicroserviceModel.new(name: "DEFAULT__TYPE__NAME", scope: "DEFAULT", plugin: "PLUG")
+        uservice.create
+        expect_any_instance_of(MicroserviceModel).to receive(:undeploy).once
+
+        plugin = PluginModel.new(name: "PLUG", scope: "DEFAULT")
+        plugin.undeploy
+      end
+    end
+
+    describe "self.gem_names" do
+      it "returns all gem_names" do
+        # Ensure we have a DEFAULT scope
+        ScopeModel.new(name: "DEFAULT").create
+
+        model = PluginModel.new(name: "TEST", scope: "DEFAULT")
+        model.create
+        model = PluginModel.new(name: "SPEC", scope: "DEFAULT")
+        model.create
+        model = PluginModel.new(name: "OTHER", scope: "OTHER")
+        model.create
+
+        expect(PluginModel.gem_names).to eql %w(SPEC TEST)
+      end
+    end
+
+    describe "counter-based naming" do
+      it "increments counter for duplicate plugin names" do
+        model1 = PluginModel.new(name: "TEST", scope: "DEFAULT")
+        model1.create
+        expect(model1.name).to eq("TEST__0")
+        model2 = PluginModel.new(name: "TEST", scope: "DEFAULT")
+        model2.create
+        expect(model2.name).to eq("TEST__1")
+        model3 = PluginModel.new(name: "TEST", scope: "DEFAULT")
+        model3.create
+        expect(model3.name).to eq("TEST__2")
+        names = PluginModel.names(scope: "DEFAULT")
+        expect(names).to contain_exactly("TEST__0", "TEST__1", "TEST__2")
+      end
+
+      it "fills gaps in counter sequence" do
+        model1 = PluginModel.new(name: "TEST", scope: "DEFAULT")
+        model1.create
+        expect(model1.name).to eq("TEST__0")
+        model2 = PluginModel.new(name: "TEST", scope: "DEFAULT")
+        model2.create
+        expect(model2.name).to eq("TEST__1")
+        model3 = PluginModel.new(name: "TEST", scope: "DEFAULT")
+        model3.create
+        expect(model3.name).to eq("TEST__2")
+        # Destroy the middle one to create a gap
+        model2.destroy
+        # Now create a new plugin with base name - should fill the gap at __1
+        model4 = PluginModel.new(name: "TEST", scope: "DEFAULT")
+        model4.create
+        expect(model4.name).to eq("TEST__1")
+        names = PluginModel.names(scope: "DEFAULT")
+        expect(names).to contain_exactly("TEST__0", "TEST__1", "TEST__2")
+      end
+
+      it "handles backwards compatibility with timestamp-based naming" do
+        old_plugin_name = "TEST__20250904175756"
+        old_plugin_data = {
+          'name' => old_plugin_name,
+          'variables' => {},
+          'plugin_txt_lines' => [],
+          'needs_dependencies' => false,
+          'store_id' => nil,
+          'updated_at' => Time.now.to_nsec_from_epoch
+        }
+        Store.hset("DEFAULT__openc3_plugins", old_plugin_name, JSON.generate(old_plugin_data))
+        model1 = PluginModel.new(name: "TEST", scope: "DEFAULT")
+        model1.create
+        expect(model1.name).to eq("TEST__0")
+        model2 = PluginModel.new(name: "TEST", scope: "DEFAULT")
+        model2.create
+        expect(model2.name).to eq("TEST__1")
+        names = PluginModel.names(scope: "DEFAULT")
+        expect(names).to contain_exactly("TEST__20250904175756", "TEST__0", "TEST__1")
+      end
+    end
+
+    describe "destroy, restore" do
+      it "destroys and restores the model" do
+        expect(GemModel).to receive(:get).and_return('path')
+        expect(GemModel).to receive(:install).and_return(nil)
+        gem = double("gem")
+        expect(gem).to receive(:extract_files)
+        expect(Gem::Package).to receive(:new).and_return(gem)
+        spec = double("spec")
+        allow(gem).to receive(:spec).and_return(spec)
+        allow(spec).to receive(:runtime_dependencies).and_return([])
+        allow(spec).to receive(:metadata).and_return({})
+        allow(spec).to receive(:summary).and_return("Test plugin")
+        allow(spec).to receive(:description).and_return("Test plugin description")
+        allow(spec).to receive(:licenses).and_return([])
+        allow(spec).to receive(:homepage).and_return(nil)
+
+        model = PluginModel.new(name: "TEST", scope: "DEFAULT")
+        model.create
+        names = PluginModel.names(scope: "DEFAULT")
+        expect(names[0].include?("TEST")).to be true
+        model.destroy
+        expect(model.destroyed?).to be true
+        expect(PluginModel.names(scope: "DEFAULT")).to be_empty
+        model.restore
+        expect(model.destroyed?).to be false
+        names = PluginModel.names(scope: "DEFAULT")
+        expect(names[0].include?("TEST")).to be true
+      end
+    end
+  end
+end

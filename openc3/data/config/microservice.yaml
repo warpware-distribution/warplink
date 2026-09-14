@@ -1,0 +1,180 @@
+---
+MICROSERVICE:
+  summary: Defines a new microservice
+  description: Defines a microservice that the plugin adds to the OpenC3 system. Microservices are background software processes that perform persistent processing.
+  parameters:
+    - name: Microservice Folder Name
+      description: The exact name of the microservice folder in the plugin. ie. microservices/MicroserviceFolderName
+      required: true
+      values: .+
+    - name: Microservice Name
+      description: The specific name of this instance of the microservice in the OpenC3 system
+      required: true
+      values: .+
+  example: MICROSERVICE EXAMPLE openc3-example
+  modifiers:
+    ENV:
+      summary: Sets an environment variable in the microservice.
+      parameters:
+        - name: Key
+          required: true
+          description: Environment variable name
+          values: .+
+        - name: Value
+          required: true
+          description: Environment variable value
+          values: .+
+      example: |
+        MICROSERVICE EXAMPLE openc3-example
+          ENV COMPANY OpenC3
+    WORK_DIR:
+      summary: Set the working directory
+      description: Working directory to run the microservice CMD in.  Can be a path relative to the microservice folder in the plugin, or an absolute path in the container the microservice runs in.
+      parameters:
+        - name: Directory
+          required: true
+          description: Working directory to run the microservice CMD in. Can be a path relative to the microservice folder in the plugin, or an absolute path in the container the microservice runs in.
+          values: .+
+      example: |
+        MICROSERVICE EXAMPLE openc3-example
+          WORK_DIR .
+    PORT:
+      summary: Open port for the microservice
+      description: Kubernetes needs a Service to be applied to open a port so this is required for Kubernetes support
+      since: 5.0.10
+      parameters:
+        - name: Number
+          required: true
+          description: Port number
+          values: \d+
+        - name: Protocol
+          required: false
+          description: Port protocol. Default is TCP.
+          values: .+
+      example: |
+        MICROSERVICE EXAMPLE openc3-example
+          PORT 7272
+    TOPIC:
+      summary: Associate a Redis topic
+      description: Redis topic to associate with this microservice. Standard OpenC3 microservices such as decom_microservice use this information to know what packet streams to subscribe to. The TOPIC keyword can be used as many times as necessary to associate all needed topics.
+      parameters:
+        - name: Topic Name
+          required: true
+          description: Redis Topic to associate with the microservice
+          values: .+
+      example: |
+        MICROSERVICE EXAMPLE openc3-example
+          # Manually assigning topics is an advanced topic and requires
+          # intimate knowledge of the internal COSMOS data structures.
+          TOPIC DEFAULT__openc3_log_messages
+          TOPIC DEFAULT__TELEMETRY__EXAMPLE__STATUS
+    TARGET_NAME:
+      summary: Associate a OpenC3 target
+      description: OpenC3 target to associate with the microservice. For standard OpenC3 microservices such as decom_microservice this causes the target configuration to get loaded into the container for the microservice.
+      parameters:
+        - name: Target Name
+          required: true
+          description: OpenC3 target to associate with the microservice
+          values: .+
+      example: |
+        MICROSERVICE EXAMPLE openc3-example
+          TARGET_NAME EXAMPLE
+    CMD:
+      summary: Command line to execute to run the microservice.
+      description: Command line to execute to run the microservice.
+      parameters:
+        - name: Args
+          required: true
+          description: One or more arguments to exec to run the microservice.
+          values: .+
+      ruby_example: |
+        MICROSERVICE EXAMPLE openc3-example
+          CMD ruby example_target.rb
+      python_example: |
+        MICROSERVICE EXAMPLE openc3-example
+          CMD python example_target.py
+    OPTION:
+      summary: Pass an option to the microservice
+      description: Generic key/value(s) options to pass to the microservice. These take the form of KEYWORD/PARAMS like a line in a OpenC3 configuration file. Multiple OPTION keywords can be used to pass multiple options to the microservice.
+      parameters:
+        - name: Option Name
+          required: true
+          description: Name of the option
+          values: .+
+        - name: Option Value(s)
+          required: true
+          description: One or more values to associate with the option
+          values: .+
+    CONTAINER:
+      summary: Docker Container
+      description: Container to execute and run the microservice in. Only used in COSMOS Enterprise.
+      parameters:
+        - name: Args
+          required: false
+          description: Name of the container
+          values: .+
+    SECRET:
+      summary: Define a secret needed by this microservice
+      description: Defines a secret for this microservice. For more information see [Admin Secrets](/docs/tools/admin#secrets).
+      since: 5.3.0
+      parameters:
+        - name: Type
+          required: true
+          description:
+            ENV or FILE.  ENV will mount the secret into an environment variable.
+            FILE mounts the secret into a file.
+          values: .*
+        - name: Secret Name
+          required: true
+          description:
+            The name of the secret to retrieve from the Admin / Secrets tab.
+            For more information see [Admin Secrets](/docs/tools/admin#secrets).
+          values: .*
+        - name: Environment Variable or File Path
+          required: true
+          description: Environment variable name or file path to store secret
+          values: .*
+        - name: Secret Store Name
+          required: false
+          description: Name of the secret store for stores with multipart keys
+          values: .*
+      example: |
+        SECRET ENV USERNAME ENV_USERNAME
+        SECRET FILE KEY "/tmp/DATA/cert"
+    ROUTE_PREFIX:
+      summary: Prefix of route
+      description: Prefix of route to the microservice to expose externally with Traefik
+      since: 5.5.0
+      parameters:
+        - name: Route Prefix
+          required: true
+          description: Route prefix. Must be unique across all scopes. Something like /myprefix
+          values: .*
+      example: |
+        MICROSERVICE CFDP CFDP
+          ROUTE_PREFIX /cfdp
+    DISABLE_ERB:
+      summary: Disable ERB processing
+      description: Disable ERB processing for the entire microservice or a set of regular expressions over its filenames
+      since: 5.12.0
+      parameters:
+        - name: Regex
+          required: false
+          description: Regex to match against filenames. If match, then no ERB processing
+          values: .+
+    SHARD:
+      summary: Operator shard to run target microservices on
+      description: Operator Shard. Only used if running multiple operator containers typically in Kubernetes
+      since: 6.0.0
+      parameters:
+        - name: Shard
+          required: false
+          description: Shard number starting from 0
+          values: \d+
+      example: |
+        SHARD 0
+    STOPPED:
+      summary: Initially creates the microservice in a stopped state (not enabled)
+      since: 6.2.0
+      example: |
+        STOPPED

@@ -1,12 +1,16 @@
+playwright/openc3-cosmos-pw-test/
 *.o
 *.def
 *.so
 *.bundle
+*.gem
 Makefile
 *Gemfile.lock
+package-lock.json
 .yardoc
 .DS_Store
 desktop.ini
+cacert.pem
 .idea
 .rubocop-http*
 .nyc_output
@@ -16,10 +20,16 @@ openc3/openc3/
 openc3/spec/install/outputs
 openc3/spec/examples.txt
 coverage/
-plugins/DEFAULT/openc3-cosmos-cfspp/*
-plugins/DEFAULT/targets_modified/*
 profile/
+plugins/DEFAULT/
+**/python/prof/
+*.dSYM/
+# CosmosUpdateCmdTlm.py input (its generated targets are ignored in
+# openc3-cosmos-warplink/.gitignore)
 cmd_tlm.json
+graph_tree.json
+# CFDP transfers (bind mounted into the containers, see compose.yaml)
+/cfdp/*
 
 # local env files
 .env.local
@@ -27,8 +37,7 @@ cmd_tlm.json
 
 # Log files
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+pnpm-debug.log*
 
 # Ignore bundler config.
 /.bundle
@@ -49,21 +58,10 @@ yarn-error.log*
 # Ignore node modules
 node_modules
 
-# GEM files
-*.gem
-
-# Plugin instance
-plugin_instance.json
-
 typescript
 
-.vscode/*
-.vscode/settings.json
-.vscode/tasks.json
-.vscode/launch.json
-!.vscode/extensions.json
-.vscode/*.code-snippets
-*.code-workspace
+developer.code-workspace
+__pycache__
 
-# Built Visual Studio Code Extensions
-*.vsix
+playwright/tests/enterprise
+.vscode/settings.json

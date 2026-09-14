@@ -1,0 +1,5 @@
+TOOL bucketexplorer "Bucket Explorer"
+  INLINE_URL main.js
+  ICON mdi-pail
+  POSITION 13
+  CATEGORY Utilities

@@ -1,0 +1,364 @@
+# Copyright 2025 OpenC3, Inc.
+# All Rights Reserved.
+#
+# This program is free software; you can modify and/or redistribute it
+# under the terms of the GNU Affero General Public License
+# as published by the Free Software Foundation; version 3 with
+# attribution addendums as found in the LICENSE.txt
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# This file may also be used under the terms of a commercial license
+# if purchased from OpenC3, Inc.
+
+import copy
+from functools import total_ordering
+from openc3.accessors.binary_accessor import BinaryAccessor
+
+
+@total_ordering
+class StructureItem:
+    create_index = 0
+
+    # Valid data types adds DERIVED to those defined by BinaryAccessor
+    DATA_TYPES = ["INT", "UINT", "FLOAT", "STRING", "BLOCK", "BOOL", "OBJECT", "ARRAY", "ANY", "DERIVED"]
+
+    # Create a StructureItem by setting all the attributes. It
+    # calls all the setter routines to do the attribute verification and then
+    # verifies the overall integrity.
+    #
+    # self.param name [String] The item name
+    # self.param bit_offset [Integer] Offset to the item starting at 0
+    # self.param bit_size [Integer] Size of the items in bits
+    # self.param data_type [Symbol] {DATA_TYPES}
+    # self.param endianness [Symbol] {BinaryAccessor::ENDIANNESS}
+    # self.param array_size [Integer, None] Size of the array item in bits. For
+    #   example, if the bit_size is 8, an array_size of 16 holds two values.
+    # self.param overflow [Symbol] {BinaryAccessor::OVERFLOW_TYPES}
+    def __init__(
+        self,
+        name,
+        bit_offset,
+        bit_size,
+        data_type,
+        endianness,
+        array_size=None,
+        overflow="ERROR",
+    ):
+        self.structure_item_constructed = False
+        # Assignment order matters due to verifications!
+        self.name = name
+        self.key = name  # Key defaults to name as given (not upcased)
+        self.endianness = endianness
+        self.data_type = data_type
+        self.bit_offset = bit_offset
+        self.original_bit_offset = bit_offset
+        self.bit_size = bit_size
+        self.original_bit_size = bit_size
+        self.array_size = array_size
+        self.original_array_size = array_size
+        self.overflow = overflow
+        self.overlap = False
+        self.variable_bit_size = None
+        self.hidden = False
+        self.parent_item = None
+        self.structure = None
+        self.create_index = StructureItem.create_index
+        StructureItem.create_index += 1
+        self.structure_item_constructed = True
+        self.verify_overall()
+
+    @property
+    def name(self):
+        return self.__name
+
+    @name.setter
+    def name(self, name):
+        if not isinstance(name, str):
+            raise TypeError(f"name must be a String but is a {name.__class__.__name__}")
+        if len(name) == 0:
+            raise ValueError("name must contain at least one character")
+
+        self.__name = name.upper()
+        if self.structure_item_constructed:
+            self.verify_overall()
+
+    @property
+    def key(self):
+        return self.__key
+
+    @key.setter
+    def key(self, key):
+        if key is not None:
+            if not isinstance(key, str):
+                raise TypeError(f"key must be a String but is a {key.__class__.__name__}")
+            if len(key) == 0:
+                raise ValueError("key must contain at least one character")
+        self.__key = key
+
+    @property
+    def endianness(self):
+        return self.__endianness
+
+    @endianness.setter
+    def endianness(self, endianness):
+        if not isinstance(endianness, str):
+            raise TypeError(f"{self.name}: endianness must be a String but is a {endianness.__class__.__name__}")
+        if endianness not in BinaryAccessor.ENDIANNESS:
+            raise ValueError(
+                f"{self.name}: unknown endianness: {endianness} - Must be 'BIG_ENDIAN' or 'LITTLE_ENDIAN'"
+            )
+        self.__endianness = endianness
+        if self.structure_item_constructed:
+            self.verify_overall()
+
+    @property
+    def bit_offset(self):
+        return self.__bit_offset
+
+    @bit_offset.setter
+    def bit_offset(self, bit_offset):
+        if not isinstance(bit_offset, int):
+            raise TypeError(f"{self.name}: bit_offset must be an Integer")
+
+        byte_aligned = (bit_offset % 8) == 0
+        if (self.data_type == "FLOAT" or self.data_type == "STRING" or self.data_type == "BLOCK") and not byte_aligned:
+            raise ValueError(
+                f"{self.name}: bit_offset for 'FLOAT', 'STRING', and 'BLOCK' items must be byte aligned"
+            )
+
+        if self.data_type == "DERIVED" and bit_offset != 0:
+            raise ValueError(f"{self.name}: DERIVED items must have bit_offset of zero")
+
+        self.__bit_offset = bit_offset
+        if self.structure_item_constructed:
+            self.verify_overall()
+
+    @property
+    def bit_size(self):
+        return self.__bit_size
+
+    @bit_size.setter
+    def bit_size(self, bit_size):
+        if not isinstance(bit_size, int):
+            raise TypeError(f"{self.name}: bit_size must be an Integer")
+
+        byte_multiple = (bit_size % 8) == 0
+        if bit_size <= 0 and self.data_type == "FLOAT":
+            raise ValueError(f"{self.name}: bit_size cannot be negative or zero for 'FLOAT' items: {bit_size}")
+        if (self.data_type == "STRING" or self.data_type == "BLOCK") and not byte_multiple:
+            raise ValueError(f"{self.name}: bit_size for STRING and BLOCK items must be byte multiples")
+        if self.data_type == "FLOAT" and bit_size != 32 and bit_size != 64:
+            raise ValueError(f"{self.name}: bit_size for FLOAT items must be 32 or 64. Given: {bit_size}")
+        if self.data_type == "DERIVED" and bit_size != 0:
+            raise ValueError(f"{self.name}: DERIVED items must have bit_size of zero")
+
+        self.__bit_size = bit_size
+        if self.structure_item_constructed:
+            self.verify_overall()
+
+    @property
+    def data_type(self):
+        return self.__data_type
+
+    @data_type.setter
+    def data_type(self, data_type):
+        if not isinstance(data_type, str):
+            raise TypeError(
+                f"{self.name}: data_type must be a str but {data_type} is a {type(data_type).__name__}"
+            )
+        if data_type not in self.DATA_TYPES:
+            raise ValueError(
+                f"{self.name}: unknown data_type: {data_type} - Must be {', '.join(self.DATA_TYPES)}"
+            )
+
+        self.__data_type = data_type
+        if self.structure_item_constructed:
+            self.verify_overall()
+
+    @property
+    def array_size(self):
+        return self.__array_size
+
+    @array_size.setter
+    def array_size(self, array_size):
+        if array_size is not None:
+            if not isinstance(array_size, int):
+                raise TypeError(f"{self.name}: array_size must be an Integer")
+            if not (self.bit_size == 0 or (array_size % self.bit_size == 0) or array_size < 0):
+                raise ValueError(f"{self.name}: array_size must be a multiple of bit_size")
+            if self.bit_size <= 0:
+                raise ValueError(f"{self.name}: bit_size cannot be negative or zero for array items")
+
+        self.__array_size = array_size
+        if self.structure_item_constructed:
+            self.verify_overall()
+
+    @property
+    def overflow(self):
+        return self.__overflow
+
+    @overflow.setter
+    def overflow(self, overflow):
+        if not isinstance(overflow, str):
+            raise TypeError(f"{self.name}: overflow type must be a String")
+
+        if overflow not in BinaryAccessor.OVERFLOW_TYPES:
+            raise ValueError(
+                f"{self.name}: unknown overflow type: {overflow} - Must be 'ERROR', 'ERROR_ALLOW_HEX', 'TRUNCATE', or 'SATURATE'"
+            )
+
+        self.__overflow = overflow
+        if self.structure_item_constructed:
+            self.verify_overall()
+
+    @property
+    def variable_bit_size(self):
+        return self.__variable_bit_size
+
+    @variable_bit_size.setter
+    def variable_bit_size(self, variable_bit_size):
+        if variable_bit_size:
+            if not isinstance(variable_bit_size, dict):
+                raise TypeError(f"{self.name}: variable_bit_size must be a dict")
+            if not isinstance(variable_bit_size["length_item_name"], str):
+                raise TypeError(f"{self.name}: variable_bit_size['length_item_name'] must be a String")
+            if not isinstance(variable_bit_size["length_value_bit_offset"], int):
+                raise ValueError(f"{self.name}: variable_bit_size['length_value_bit_offset'] must be an Integer")
+            if not isinstance(variable_bit_size["length_bits_per_count"], int):
+                raise ValueError(f"{self.name}: variable_bit_size['length_bits_per_count'] must be an Integer")
+        self.__variable_bit_size = variable_bit_size
+        if self.structure_item_constructed:
+            self.verify_overall()
+
+    def __eq__(self, other):
+        # Comparison primarily based on bit_offset, matching Ruby behavior
+        # DERIVED items are never equal to non-DERIVED items
+        if self.data_type == "DERIVED":
+            if other.data_type != "DERIVED":
+                return False
+            return self.create_index == other.create_index
+        elif other.data_type == "DERIVED":
+            return False
+
+        # Non-derived items: compare by original_bit_offset and create_index
+        if self.original_bit_offset == other.original_bit_offset:
+            return self.create_index == other.create_index
+        return False
+
+    def __lt__(self, other):
+        # Comparison primarily based on bit_offset, matching Ruby behavior
+        # Derived items should be first in the list with multiple derived sorted by create_index
+        if self.data_type == "DERIVED":
+            if other.data_type != "DERIVED":
+                return True  # DERIVED comes before non-DERIVED
+            return self.create_index < other.create_index
+        elif other.data_type == "DERIVED":
+            return False  # non-DERIVED comes after DERIVED
+
+        # Handle non-derived items
+        if ((self.original_bit_offset >= 0) and (other.original_bit_offset >= 0)) or (
+            (self.original_bit_offset < 0) and (other.original_bit_offset < 0)
+        ):
+            # Both Have Same Sign
+            if self.original_bit_offset == other.original_bit_offset:
+                # New Variable Bit Size items are before regular items
+                if self.variable_bit_size:
+                    if not other.variable_bit_size:
+                        return True
+                    # If both variable_bit_size use create index
+                elif other.variable_bit_size:
+                    return False
+
+                return self.create_index < other.create_index
+            return self.original_bit_offset < other.original_bit_offset
+        else:
+            # Different signs (negative offsets come after positive)
+            return self.original_bit_offset > other.original_bit_offset
+
+    # Make a light weight clone of this item
+    def clone(self):
+        item = copy.copy(self)
+        # Since we're copying and not calling the constructor
+        # we have to manually update the create_index
+        item.create_index = StructureItem.create_index
+        StructureItem.create_index += 1
+        return item
+
+    def as_json(self):
+        result = {}
+        result["name"] = self.name
+        result["key"] = self.key
+        result["bit_offset"] = self.original_bit_offset
+        result["bit_size"] = self.original_bit_size
+        result["data_type"] = self.data_type
+        result["endianness"] = self.endianness
+        result["overflow"] = self.overflow
+        result["overlap"] = self.overlap
+        result["create_index"] = self.create_index
+        result["hidden"] = self.hidden
+        if self.original_array_size is not None:
+            result["array_size"] = self.original_array_size
+        if self.variable_bit_size is not None:
+            result["variable_bit_size"] = self.variable_bit_size
+        if self.parent_item is not None:
+            result["parent_item"] = self.parent_item.as_json()
+        if self.structure is not None:
+            result["structure"] = self.structure.as_json()
+        return result
+
+    def little_endian_bit_field(self):
+        if self.endianness != "LITTLE_ENDIAN":
+            return False
+        if not (self.data_type == "INT" or self.data_type == "UINT"):
+            return False
+        # If we're not byte aligned we're a bit field
+        if not (self.bit_offset % 8) == 0:
+            return True
+        # If we don't have an even number of bytes we're a bit field
+        if not self.even_byte_multiple():
+            return True
+        return False
+
+    # Verifies overall integrity of the StructureItem by checking for correct
+    # LITTLE_ENDIAN bit fields
+    def verify_overall(self):
+        # Verify negative bit_offset conditions
+        if self.bit_offset < 0:
+            if self.bit_size < 0:
+                raise ValueError(
+                    f"{self.name}: Can't define an item with negative bit_size {self.bit_size} and negative bit_offset {self.bit_offset}"
+                )
+            if self.array_size and self.array_size < 0:
+                raise ValueError(
+                    f"{self.name}: Can't define an item with negative array_size {self.array_size} and negative bit_offset {self.bit_offset}"
+                )
+            if self.array_size and self.array_size > abs(self.bit_offset):
+                raise ValueError(
+                    f"{self.name}: Can't define an item with array_size {self.array_size} greater than negative bit_offset {self.bit_offset}"
+                )
+            elif self.bit_size > abs(self.bit_offset):
+                raise ValueError(
+                    f"{self.name}: Can't define an item with bit_size {self.bit_size} greater than negative bit_offset {self.bit_offset}"
+                )
+        else:
+            # Verify bounds on little-endian bit fields
+            if self.little_endian_bit_field():
+                # Bitoffset always refers to the most significant bit of a bitfield
+                num_bytes = int(((self.bit_offset % 8) + self.bit_size - 1) / 8) + 1
+                upper_bound = self.bit_offset / 8
+                lower_bound = upper_bound - num_bytes + 1
+
+                if lower_bound < 0:
+                    raise ValueError(
+                        f"{self.name}: LITTLE_ENDIAN bitfield with bit_offset {self.bit_offset} and bit_size {self.bit_size} is invalid"
+                    )
+
+    def even_byte_multiple(self):
+        if self.bit_size in [8, 16, 32, 64]:
+            return True
+        else:
+            return False

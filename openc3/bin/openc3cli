@@ -1,0 +1,1352 @@
+#!/usr/bin/env ruby
+# encoding: ascii-8bit
+
+# Copyright 2022 Ball Aerospace & Technologies Corp.
+# All Rights Reserved.
+#
+# This program is free software; you can modify and/or redistribute it
+# under the terms of the GNU Affero General Public License
+# as published by the Free Software Foundation; version 3 with
+# attribution addendums as found in the LICENSE.txt
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# Modified by OpenC3, Inc.
+# All changes Copyright 2025, OpenC3, Inc.
+# All Rights Reserved
+#
+# This file may also be used under the terms of a commercial license
+# if purchased from OpenC3, Inc.
+
+# This file will handle OpenC3 tasks such as instantiating a new project
+
+require 'openc3'
+require 'openc3/bridge/bridge'
+require 'openc3/models/gem_model'
+require 'openc3/models/migration_model'
+require 'openc3/models/plugin_model'
+require 'openc3/models/python_package_model'
+require 'openc3/models/queue_model'
+require 'openc3/models/scope_model'
+require 'openc3/models/tool_model'
+require 'openc3/packets/packet_config'
+require 'openc3/packets/parsers/xtce_converter'
+require 'openc3/utilities/bucket'
+require 'openc3/utilities/cli_generator'
+require 'openc3/utilities/local_mode'
+require 'ostruct'
+require 'optparse'
+require 'openc3/utilities/zip'
+require 'fileutils'
+require 'find'
+require 'json'
+require 'redis'
+require 'erb'
+require 'irb'
+require 'irb/completion'
+
+$redis_url = "redis://#{ENV['OPENC3_REDIS_HOSTNAME']}:#{ENV['OPENC3_REDIS_PORT']}"
+
+ERROR_CODE = 1
+
+CLI_SCRIPT_ACTIONS = %w(help list run spawn init)
+$script_interrupt_text = ''
+trap('INT') do
+  abort("Interrupted at console; exiting.#{$script_interrupt_text}")
+end
+
+# Prints the usage text for the openc3cli executable
+def print_usage
+  puts "Usage:"
+  puts "  cli help                          # Displays this information"
+  puts "  cli rake                          # Runs rake in the local directory"
+  puts "  cli irb                           # Runs irb in the local directory"
+  puts "  cli script                        # Interact with scripts. Run with --help for more info."
+  puts "  cli validate /PATH/FILENAME.gem SCOPE variables.json  # Validate a COSMOS plugin gem file"
+  puts "  cli load /PATH/FILENAME.gem SCOPE plugin_hash.json    # Loads a COSMOS plugin gem file"
+  puts "    OPTIONS: --variables lets you pass a path to a JSON file containing your plugin's variables"
+  puts "  cli list <SCOPE>                  # Lists installed plugins, SCOPE is DEFAULT if not given"
+  puts "  cli generate TYPE OPTIONS         # Generate various COSMOS entities"
+  puts "    OPTIONS: --ruby or --python is required to specify the language in the generated code unless OPENC3_LANGUAGE is set"
+  puts "  cli bridge CONFIG_FILENAME        # Run COSMOS host bridge"
+  puts "  cli bridgegem gem_name variable1=value1 variable2=value2 # Runs bridge using gem bridge.txt"
+  puts "  cli bridgesetup CONFIG_FILENAME   # Create a default config file"
+  puts "  cli pkginstall PKGFILENAME SCOPE  # Install loaded package (Ruby gem or python package)"
+  puts "  cli pkguninstall PKGFILENAME SCOPE  # Uninstall loaded package (Ruby gem or python package)"
+  puts "  cli rubysloc                      # DEPRECATED: Please use scc (https://github.com/boyter/scc)"
+  puts "  cli xtce_converter                # Convert to and from the XTCE format. Run with --help for more info."
+  puts "  cli cstol_converter               # Converts CSTOL files (.prc) to COSMOS. Run with --help for more info."
+  puts ""
+end
+
+def check_environment
+  hostname = ENV['OPENC3_API_HOSTNAME'] || (ENV['OPENC3_DEVEL'] ? '127.0.0.1' : 'openc3-cosmos-cmd-tlm-api')
+  begin
+    Resolv.getaddress(hostname)
+  rescue Resolv::ResolvError
+    abort "Unable to resolv api hostname: #{hostname}"
+  end
+
+  if hostname =~ /openc3-cosmos-cmd-tlm-api/
+    $openc3_in_cluster = true
+  else
+    $openc3_in_cluster = false
+  end
+
+  unless $openc3_in_cluster
+    # Make sure the user has all the required environment variables set
+    abort "OPENC3_API_HOSTNAME environment variable is required" unless ENV['OPENC3_API_HOSTNAME']
+    abort "OPENC3_API_PORT environment variable is required" unless ENV['OPENC3_API_PORT']
+    abort "OPENC3_API_PASSWORD environment variable is required" unless ENV['OPENC3_API_PASSWORD']
+  end
+end
+
+def xtce_converter(args)
+  options = {}
+  option_parser = OptionParser.new do |opts|
+    opts.banner = "Usage: xtce_converter [options] --import input_xtce_filename --output output_dir\n"+
+      "       xtce_converter [options] --plugin /PATH/FILENAME.gem --output output_dir "+ 
+      "              --variables variables.txt --root_target root_target_name --time_association_name time_association_name"
+    opts.separator("")
+    opts.on("-h", "--help", "Show this message") do
+      puts opts
+      exit
+    end
+    opts.on("-i VALUE", "--import VALUE", "Import the specified .xtce file") do |arg|
+      options[:import] = arg
+    end
+    opts.on("-o", "--output DIRECTORY", "Create files in the directory") do |arg|
+      options[:output] = arg
+    end
+    opts.on("-p", "--plugin PLUGIN", "Export .xtce file(s) from the plugin") do |arg|
+      options[:plugin] = arg
+    end
+    opts.on("-v", "--variables", "Optional variables file to pass to the plugin") do |arg|
+      options[:variables] = arg
+    end
+    opts.on("-r ROOT_TARGET", "--root_target ROOT_TARGET", "Optional flag to set which target is at the root of an XTCE document. If not specified, each target will be placed under a generic 'root' spacesystem") do |arg|
+      options[:root_target_name] = arg
+    end
+    opts.on("-t TIME_ASSOCIATION_NAME", "--time_association_name TIME_ASSOCIATION_NAME", "Optional flag to set which target is at the root of an XTCE document. If not specified, each target will be placed under a generic 'root' spacesystem") do |arg|
+      options[:time_association_name] = "PACKET_TIME"
+    end
+  end
+
+  begin
+    option_parser.parse!(args)
+  rescue
+    abort(option_parser.to_s)
+  end
+
+  if options[:import] && options[:plugin]
+    puts "xtce_converter options --import and --plugin are mutually exclusive"
+    abort(option_parser.to_s)
+  end
+
+  ENV['OPENC3_NO_STORE'] = '1' # it can be anything
+  OpenC3::Logger.stdout = false
+  OpenC3::Logger.level = OpenC3::Logger::DEBUG
+
+  if options[:import] && options[:output]
+    packet_config = OpenC3::PacketConfig.new
+    puts "Processing #{options[:import]}..."
+    packet_config.process_file(options[:import], nil)
+    puts "Writing COSMOS config files to #{options[:output]}/"
+    packet_config.to_config(options[:output])
+    exit(0)
+  elsif options[:plugin] && options[:output]
+    begin
+      variables = nil
+      variables = JSON.parse(File.read(options[:variables]), allow_nan: true, create_additions: true) if options[:variables]
+      puts "Installing #{File.basename(options[:plugin])}"
+      plugin_hash = OpenC3::PluginModel.install_phase1(options[:plugin], existing_variables: variables, scope: 'DEFAULT', validate_only: true)
+      plugin_hash['variables']['xtce_output'] = options[:output]
+      plugin_hash['variables']['time_association_name'] = options[:time_association_name]
+      OpenC3::PluginModel.install_phase2(plugin_hash, scope: 'DEFAULT', validate_only: true,
+        gem_file_path: options[:plugin])
+      OpenC3::XtceConverter.combine_output_xtce(options[:output], options[:root_target_name])
+      result = 0 # bash and Windows consider 0 success
+    rescue => e
+      puts "Error: #{e.message}"
+      puts e.backtrace
+      result = ERROR_CODE
+    ensure
+      exit(result)
+    end
+  else
+    abort(option_parser.to_s)
+  end
+end
+
+# A helper method to make the zip writing recursion work
+def write_zip_entries(base_dir, entries, zip_path, io)
+  io.add(zip_path, base_dir) # Add the directory whether it has entries or not
+  entries.each do |e|
+    zip_file_path = File.join(zip_path, e)
+    disk_file_path = File.join(base_dir, e)
+    if File.directory? disk_file_path
+      recursively_deflate_directory(disk_file_path, io, zip_file_path)
+    else
+      put_into_archive(disk_file_path, io, zip_file_path)
+    end
+  end
+end
+
+def recursively_deflate_directory(disk_file_path, io, zip_file_path)
+  io.add(zip_file_path, disk_file_path)
+  write_zip_entries(disk_file_path, entries, zip_file_path, io)
+end
+
+def put_into_archive(disk_file_path, io, zip_file_path)
+  io.get_output_stream(zip_file_path) do |f|
+    data = nil
+    File.open(disk_file_path, 'rb') { |file| data = file.read }
+    f.write(data)
+  end
+end
+
+def validate_plugin(plugin_file_path, scope:, variables_file: nil)
+  ENV['OPENC3_NO_STORE'] = '1' # it can be anything
+  OpenC3::Logger.stdout = false
+  OpenC3::Logger.level = OpenC3::Logger::DEBUG
+  scope ||= 'DEFAULT'
+  variables = nil
+  variables = JSON.parse(File.read(variables_file), allow_nan: true, create_additions: true) if variables_file
+  puts "Installing #{File.basename(plugin_file_path)}"
+  plugin_hash = OpenC3::PluginModel.install_phase1(plugin_file_path, existing_variables: variables, scope: scope, validate_only: true)
+  OpenC3::PluginModel.install_phase2(plugin_hash, scope: scope, validate_only: true,
+    gem_file_path: plugin_file_path)
+  puts "Successfully validated #{File.basename(plugin_file_path)}"
+  result = 0 # bash and Windows consider 0 success
+rescue => e
+  puts e.message
+  result = ERROR_CODE
+ensure
+  exit(result)
+end
+
+def update_plugin(plugin_file_path, plugin_name, variables: nil, plugin_txt_lines: nil, scope:, existing_plugin_name:, force: false)
+  new_gem = File.basename(plugin_file_path)
+  old_gem = existing_plugin_name.split("__")[0]
+  puts "Updating existing plugin: #{existing_plugin_name} with #{File.basename(plugin_file_path)}"
+  plugin_model = OpenC3::PluginModel.get_model(name: existing_plugin_name, scope: scope)
+  begin
+    # Only update if something has changed
+    if force or (new_gem != old_gem) or (variables and variables != plugin_model.variables) or (plugin_txt_lines and plugin_txt_lines != plugin_model.plugin_txt_lines)
+      puts "Gem version change detected - New: #{new_gem}, Old: #{old_gem}" if new_gem != old_gem
+      if variables and variables != plugin_model.variables
+        pp_variables = ""
+        PP.pp(variables, pp_variables)
+        pp_plugin_model_variables = ""
+        PP.pp(plugin_model.variables, pp_plugin_model_variables)
+        puts "Variables change detected\nNew:\n#{pp_variables}\nOld:\n#{pp_plugin_model_variables}"
+      end
+      puts "plugin.txt change detected\nNew:\n#{plugin_txt_lines.join("\n")}\n\nOld:\n#{plugin_model.plugin_txt_lines.join("\n")}\n" if plugin_txt_lines and plugin_txt_lines != plugin_model.plugin_txt_lines
+      variables = plugin_model.variables unless variables
+      plugin_model.destroy
+
+      plugin_hash = OpenC3::PluginModel.install_phase1(plugin_file_path, existing_variables: variables, existing_plugin_txt_lines: plugin_txt_lines, process_existing: true, scope: scope)
+      puts "Updating plugin: #{plugin_file_path}\n#{plugin_hash}"
+      plugin_hash = OpenC3::PluginModel.install_phase2(plugin_hash, scope: scope)
+      OpenC3::LocalMode.update_local_plugin(plugin_file_path, plugin_hash, old_plugin_name: plugin_name, scope: scope)
+    else
+      puts "No changes detected - Exiting without change"
+    end
+  rescue => e
+    puts e.formatted
+    if plugin_model.destroyed?
+      plugin_model.restore
+      # Local mode files should still be good because restore will now reuse the old name
+    end
+    raise e
+  end
+end
+
+def wait_process_complete_internal(process_name, scope:)
+  STDOUT.flush
+  state = 'Running'
+  status = nil
+  while true
+    status = OpenC3::ProcessStatusModel.get(name: process_name, scope: scope)
+    state = status['state']
+    break if state != 'Running'
+    sleep(5)
+    print '.'
+    STDOUT.flush
+  end
+  puts "\nFinished: #{state}"
+  puts "Output:\n"
+  puts status['output']
+  if state == 'Complete'
+    puts "Success!"
+    exit 0
+  else
+    puts "Failed!"
+    exit 1
+  end
+end
+
+def wait_process_complete(process_name)
+  STDOUT.flush
+  state = 'Running'
+  status = nil
+  while state == 'Running'
+    status = plugin_status(process_name)
+    state = status['state']
+    sleep(5)
+    print '.'
+    STDOUT.flush
+  end
+  puts "\nFinished: #{state}"
+  puts "Output:\n"
+  puts status['output']
+  if state == 'Complete'
+    puts "Success!"
+    exit 0
+  else
+    puts "Failed!"
+    exit 1
+  end
+end
+
+# Outputs list of installed plugins
+def list_plugins(scope:)
+  scope ||= 'DEFAULT'
+  check_environment()
+  names = []
+  if $openc3_in_cluster
+    names = OpenC3::PluginModel.names(scope: scope)
+  else
+    require 'openc3/script'
+    names = plugin_list(scope: scope)
+  end
+  names.each do |name|
+    puts name
+  end
+end
+
+# Loads a plugin into the OpenC3 system
+# This code is used from the command line and is the same code that gets called if you
+# edit/upgrade or install a new plugin from the Admin interface
+#
+# Usage: cli load gemfile_path [scope] [plugin_hash_file_path] [force]
+#
+# With just gemfile_path and/or scope: Will do nothing if any plugin
+# with the same gem file already exists
+#
+# Otherwise will do what the plugin_hash_file says to do
+# Plugin hash file must have the exact name of an existing plugin for upgrades and edits
+# Otherwise, it will be assumed that the plugin is intentionally being installed for a second
+# time
+#
+# Pass true as the last argument to force install even if a plugin with
+# the same version number exists
+#
+def load_plugin(plugin_file_path, scope:, plugin_hash_file: nil, force: false, variables_file: nil)
+  scope ||= 'DEFAULT'
+  check_environment()
+  if $openc3_in_cluster
+    # In Cluster
+
+    # Only create the scope if it doesn't already exist
+    unless OpenC3::ScopeModel.names.include?(scope)
+      begin
+        puts "Creating scope: #{scope}"
+        scope_model = OpenC3::ScopeModel.new(name: scope)
+        scope_model.create
+        scope_model.deploy(".", {})
+      rescue => e
+        abort("Error creating scope: #{scope}: #{e.formatted}")
+      end
+    end
+
+    begin
+      existing_variables = JSON.parse(File.read(variables_file)) if variables_file
+      if plugin_hash_file
+        # Admin Create / Edit / or Upgrade Plugin
+        OpenC3::PluginModel.install_phase1(plugin_file_path, existing_variables: existing_variables, scope: scope)
+        plugin_hash = JSON.parse(File.read(plugin_hash_file), allow_nan: true, create_additions: true)
+      else
+        # Init or Command Line openc3cli load with no plugin_hash_file
+        file_full_name = File.basename(plugin_file_path, ".gem")
+        file_gem_name = file_full_name.split('-')[0..-2].join('-')
+        found = false
+        plugin_names = OpenC3::PluginModel.names(scope: scope)
+        plugin_names.each do |plugin_name|
+          gem_name = plugin_name.split("__")[0]
+          full_name = File.basename(gem_name, ".gem")
+          gem_name = full_name.split('-')[0..-2].join('-')
+          if file_gem_name == gem_name
+            found = true
+            force_install = force || ENV['OPENC3_FORCE_INSTALL']
+            # Upgrade if version changed or force install is set
+            if file_full_name != full_name || force_install
+              update_plugin(plugin_file_path, plugin_name, scope: scope, existing_plugin_name: plugin_name, force: force_install)
+            else
+              puts "No version change detected for: #{plugin_name}"
+            end
+          end
+        end
+        return if found
+
+        plugin_hash = OpenC3::PluginModel.install_phase1(plugin_file_path, existing_variables: existing_variables, scope: scope)
+      end
+
+      # Determine if plugin named in plugin_hash exists
+      existing_plugin_hash = OpenC3::PluginModel.get(name: plugin_hash['name'], scope: scope)
+
+      # Existing plugin hash will be present if plugin is being edited or upgraded
+      # However, a missing existing could also be that a plugin was updated in local mode directly from across installations
+      # changing the plugin name without really meaning to create a new instance of the plugin
+      # ie.
+      # User on machine 1 checks in a changed plugin_instance.json with a different name - There is still only one plugin desired and committed
+      # User on machine 2 starts up with the new configuration, OpenC3::PluginModel.get will return nil because the exact name is different
+      # In this case, the plugin should be updated without installing a second instance. analyze_local_mode figures this out.
+      unless existing_plugin_hash
+        existing_plugin_hash = OpenC3::LocalMode.analyze_local_mode(plugin_name: plugin_hash['name'], scope: scope)
+      end
+
+      if existing_plugin_hash
+        # Upgrade or Edit
+        update_plugin(plugin_file_path, plugin_hash['name'], variables: plugin_hash['variables'], scope: scope,
+          plugin_txt_lines: plugin_hash['plugin_txt_lines'], existing_plugin_name: existing_plugin_hash['name'], force: force)
+      else
+        # New Install
+        puts "Loading new plugin: #{plugin_file_path}\n#{plugin_hash}"
+        plugin_hash = OpenC3::PluginModel.install_phase2(plugin_hash, scope: scope)
+        OpenC3::LocalMode.update_local_plugin(plugin_file_path, plugin_hash, scope: scope)
+      end
+    rescue => e
+      abort("Error installing plugin: #{scope}: #{plugin_file_path}\n#{e.formatted}")
+    end
+  else
+    # Outside Cluster
+    require 'openc3/script'
+    if plugin_hash_file
+      plugin_hash = JSON.parse(File.read(plugin_hash_file), allow_nan: true, create_additions: true)
+    else
+      plugin_hash = plugin_install_phase1(plugin_file_path, scope: scope)
+    end
+
+    process_name = plugin_install_phase2(plugin_hash, scope: scope)
+
+    print "Installing..."
+    wait_process_complete(process_name)
+  end
+end
+
+def unload_plugin(plugin_name, scope:)
+  scope ||= 'DEFAULT'
+  check_environment()
+  if $openc3_in_cluster
+    begin
+      plugin_model = OpenC3::PluginModel.get_model(name: plugin_name, scope: scope)
+      plugin_model.destroy
+      OpenC3::LocalMode.remove_local_plugin(plugin_name, scope: scope)
+      OpenC3::Logger.info("PluginModel destroyed: #{plugin_name}", scope: scope)
+    rescue => e
+      abort("Error uninstalling plugin: #{scope}: #{plugin_name}: #{e.formatted}")
+    end
+  else
+    # Outside Cluster
+    require 'openc3/script'
+    process_name = plugin_uninstall(plugin_name, scope: scope)
+    print "Uninstalling..."
+    wait_process_complete(process_name)
+  end
+end
+
+def cli_pkg_install(filename, scope:)
+  scope ||= 'DEFAULT'
+  check_environment()
+  if $openc3_in_cluster
+    if File.extname(filename) == '.gem'
+      OpenC3::GemModel.install(filename, scope: scope)
+    else
+      process_name = OpenC3::PythonPackageModel.install(filename, scope: scope)
+      print "Installing..."
+      wait_process_complete_internal(process_name, scope: scope)
+    end
+  else
+    # Outside Cluster
+    require 'openc3/script'
+    process_name = package_install(filename, scope: scope)
+    print "Installing..."
+    wait_process_complete(process_name)
+  end
+end
+
+def cli_pkg_uninstall(filename, scope:)
+  scope ||= 'DEFAULT'
+  check_environment()
+  if $openc3_in_cluster
+    if File.extname(filename) == '.rb'
+      OpenC3::GemModel.destroy(filename)
+    else
+      process_name = OpenC3::PythonPackageModel.destroy(filename, scope: scope)
+      print "Uninstalling..."
+      wait_process_complete_internal(process_name, scope: scope)
+    end
+  else
+    # Outside Cluster
+    require 'openc3/script'
+    process_name = package_uninstall(filename, scope: scope)
+    if File.extname(filename) == '.rb'
+      puts "Uninstalled"
+    else
+      print "Uninstalling..."
+      wait_process_complete(process_name)
+    end
+  end
+end
+
+def get_redis_keys
+  redis = Redis.new(url: $redis_url, username: ENV['OPENC3_REDIS_USERNAME'], password: ENV['OPENC3_REDIS_PASSWORD'])
+  puts "\n--- COSMOS Redis database keys ---"
+  cursor = 0
+  keys = []
+  loop do
+    cursor, result = redis.scan(cursor)
+    keys.concat(result)
+    cursor = cursor.to_i # cursor is returned as a string
+    break if cursor == 0
+  end
+  keys.uniq!
+  keys.sort!
+  keys.select { |item| !item[/^tlm__/] }.each do |key|
+    puts "#{key}\n  #{redis.hkeys(key)}"
+  rescue Redis::CommandError
+    begin
+      # CommandError is raised if you try to hkeys on a stream
+      puts "Stream: #{key}\n  #{redis.xinfo(:stream, key)}"
+    rescue
+      puts "Unknown key '#{key}'"
+    end
+  end
+  puts "Packets Defs: #{keys.select { |item| item[/^tlm__/] }}"
+end
+
+def run_migrations(folder)
+  # Determine if this is a brand new installation (no tools installed)
+  # We don't run migrations on new installations
+  tools = OpenC3::ToolModel.names(scope: 'DEFAULT')
+  if tools.length <= 0
+    puts "Brand new installation detected"
+    brand_new = true
+  else
+    puts "Checking for needed migrations..."
+    brand_new = false
+  end
+
+  # Run each newly discovered migration unless brand_new
+  if !folder
+    folder = "/openc3/lib/openc3/migrations"
+    entries = Dir.entries(folder).map { |entry| File.join(folder, entry) }
+    folder = "/openc3-enterprise/lib/openc3-enterprise/migrations"
+    if File.exist?(folder)
+      entries.concat(Dir.entries(folder).map { |entry| File.join(folder, entry) })
+    end
+    entries = entries.sort() # run in alphabetical order
+  else
+    entries = Dir.entries(folder).sort
+  end
+  migrations = OpenC3::MigrationModel.all
+  entries.each do |entry|
+    name = File.basename(entry)
+    extension = File.extname(name)
+    if extension == '.rb' and not migrations[name]
+      unless brand_new
+        puts "Running Migration: #{name}"
+        require entry
+      end
+      OpenC3::MigrationModel.new(name: name).create
+    end
+  end
+  if brand_new
+    puts "All migrations skipped"
+  else
+    puts "Migrations complete"
+  end
+end
+
+def run_bridge(filename, params)
+  variables = {}
+  params.each do |param|
+    name, value = param.split('=')
+    if name and value
+      variables[name] = value
+    else
+      raise "Invalid variable passed to bridgegem (syntax name=value): #{param}"
+    end
+  end
+  OpenC3::Bridge.new(filename, variables)
+  begin
+    while true
+      sleep(1)
+    end
+  rescue Interrupt
+    exit(0)
+  end
+end
+
+def cli_script_monitor(script_id)
+  ret_code = ERROR_CODE
+  require 'openc3/script'
+  OpenC3::RunningScriptWebSocketApi.new(id: script_id) do |api|
+    while (resp = api.read) do
+      # see ScriptRunner.vue for types and states
+      case resp['type']
+      when 'file'
+        puts "Filename #{resp['filename']} scope #{resp['scope']}"
+      when 'line'
+        fn = resp['filename'].nil? ? '<no file>' : resp['filename']
+        puts "At [#{fn}:#{resp['line_no']}] state [#{resp['state']}]"
+        if resp['state'] == 'error' or resp['state'] == 'crashed'
+          $script_interrupt_text = ''
+          puts 'script failed'
+          break
+        end
+      when 'output'
+        puts resp['line']
+      when 'complete'
+        $script_interrupt_text = ''
+        puts 'script complete'
+        ret_code = 0
+        break
+      # These conditions are all handled by the else
+      # when 'running', 'breakpoint', 'waiting', 'time'
+      else
+        puts resp.pretty_inspect
+      end
+    end
+  end
+  return ret_code
+end
+
+def get_env_from_args(args)
+  # Figure out if there are any optional environment variables
+  # args[0] is the command, args[1] is the script file
+  # args[2..-1] are environment variables specified as NAME=VALUE
+  environ = {}
+  if args.length > 2
+    args[2..-1].each do |arg|
+      name, value = arg.split('=')
+      if name and value
+        environ[name] = value
+      end
+    end
+  end
+  return environ
+end
+
+def cli_script_init
+  require 'openc3/script'
+  initialize_offline_access()
+  return 0
+end
+
+def cli_script_list(args, options)
+  require 'openc3/script'
+  puts script_list(scope: options[:scope])
+  return 0
+end
+
+def parse_suite_runner_options(options)
+  suite_runner = nil
+  # suite must be given to enable Suite Runner execution
+  if options[:suite]
+    suite_runner = {}
+    suite_runner['suite'] = options[:suite]
+    if options[:group]
+      suite_runner['group'] = options[:group]
+      # script requires group to be set
+      if options[:script]
+        suite_runner['script'] = options[:script]
+      end
+    end
+    if options[:method]
+      suite_runner['method'] = options[:method]
+    else
+      suite_runner['method'] = 'start'
+    end
+    if options[:options]
+      suite_runner['options'] = options[:options].split(',')
+    else
+      suite_runner['options'] = ["continueAfterError"]
+    end
+  end
+  return suite_runner
+end
+
+def cli_script_run(args, options)
+  environment = get_env_from_args(args)
+  suite_runner = parse_suite_runner_options(options)
+  ret_code = ERROR_CODE
+  require 'openc3/script'
+  if (id = script_run(args[1], disconnect: options[:disconnect], environment: environment, suite_runner: suite_runner, scope: options[:scope]))
+    puts id
+    $script_interrupt_text = "  Script #{args[1]} still running remotely.\n" # for Ctrl-C
+    if (options[:wait] < 1) then
+      ret_code = cli_script_monitor(id)
+    else
+      Timeout::timeout(options[:wait], nil, "--wait #{options[:wait]} exceeded") do
+        ret_code = cli_script_monitor(id)
+      rescue Timeout::ExitException, Timeout::Error => e
+        # Timeout exceptions are also raised by the Websocket API, so we check
+        if e.message =~ /^--wait /
+          puts e.message + ", detaching from running script #{args[1]}"
+        else
+          raise
+        end
+      end
+    end
+  end
+  return ret_code
+rescue => e
+  puts "Error running script: #{e.message}"
+  puts "Have you called 'script init'?"
+  puts e.backtrace
+  return ERROR_CODE
+end
+
+def cli_script_spawn(args, options)
+  environment = get_env_from_args(args)
+  suite_runner = parse_suite_runner_options(options)
+  ret_code = ERROR_CODE
+  require 'openc3/script'
+  if (id = script_run(args[1], disconnect: options[:disconnect], environment: environment, suite_runner: suite_runner, scope: options[:scope]))
+    puts id
+    ret_code = 0
+  end
+  return ret_code
+rescue => e
+  puts "Error running script: #{e.message}"
+  puts "Have you called 'script init'?"
+  puts e.backtrace
+  return ERROR_CODE
+end
+
+def cli_script_running(args, options)
+  ret_code = ERROR_CODE
+  require 'openc3/script'
+  if args[1]
+    limit = args[1].to_i
+  else
+    limit = 100
+  end
+  if args[2]
+    offset = args[2].to_i
+  else
+    offset = 0
+  end
+  if (list = running_script_list(limit: limit, offset: offset, scope: options[:scope]))
+    if options[:verbose]
+      pp list
+    else
+      printf("%-5s %-20s %-30s %-22s %-10s\n", "ID", "User", "Filename", "Start Time", "State")
+      list.each do |hash|
+        printf("%-5s %-20s %-30s %-22s %-10s\n", hash['name'], hash['user_full_name'], hash['filename'], hash['start_time'], hash['state'])
+      end
+    end
+    ret_code = 0
+  end
+  return ret_code
+rescue => e
+  puts "Error getting script status for #{args[1]}: #{e.message}"
+  puts "Have you called 'script init'?"
+  puts e.backtrace
+  return ERROR_CODE
+end
+
+def cli_script_status(args, options)
+  ret_code = ERROR_CODE
+  require 'openc3/script'
+  if (hash = script_get(args[1], scope: options[:scope]))
+    if options[:verbose]
+      pp hash
+    else
+      printf("%-5s %-20s %-30s %-22s %-10s\n", "ID", "User", "Filename", "Start Time", "State")
+      printf("%-5s %-20s %-30s %-22s %-10s\n", hash['name'], hash['user_full_name'], hash['filename'], hash['start_time'], hash['state'])
+    end
+    ret_code = 0
+  end
+  return ret_code
+rescue => e
+  puts "Error getting script status for #{args[1]}: #{e.message}"
+  puts "Have you called 'script init'?"
+  puts e.backtrace
+  return ERROR_CODE
+end
+
+def cli_script_stop(args, options)
+  require 'openc3/script'
+  running_script_stop(args[1], scope: options[:scope])
+  return 0
+rescue => e
+  puts "Error stopping script #{args[1]}: #{e.message}"
+  puts "Have you called 'script init'?"
+  puts e.backtrace
+  return ERROR_CODE
+end
+
+def cli_script(args=[])
+  options = {scope: 'DEFAULT', disconnect: false, wait: 0, verbose: false}
+  option_parser = OptionParser.new do |opts|
+    opts.banner = "Usage: script --scope SCOPE [init | list | spawn | run]\n" +
+      "  init                               Initialize running scripts (Enterprise Only)\n" +
+      "  list                               List scripts in the specified scope\n" +
+      "  spawn SCRIPT [ENV=VALUE]           Spawn SCRIPT in the specified scope with optional env vars and return script ID\n" +
+      "  run SCRIPT [ENV=VALUE]             Run SCRIPT in the specified scope with optional env vars and print script output\n" +
+      "  running [LIMIT] [OFFSET]           Get a list of all running scripts (limit 100 by default). Use LIMIT and OFFSET to get large batches.\n" +
+      "  status SCRIPT_ID                   Get status for the running script given by SCRIPT_ID\n" +
+      "  stop SCRIPT_ID                     Stop the running script given by SCRIPT_ID\n"
+    opts.on("-h", "--help", "Show this message") do
+      puts opts
+      exit
+    end
+    opts.on("--scope SCOPE", "Run with specified scope (default = DEFAULT)") do |arg|
+      options[:scope] = arg
+    end
+    opts.on("--suite SUITE", "Run with specified suite") do |arg|
+      options[:suite] = arg
+    end
+    opts.on("--group GROUP", "Run with specified group") do |arg|
+      options[:group] = arg
+    end
+    opts.on("--script SCRIPT", "Run with specified script") do |arg|
+      options[:script] = arg
+    end
+    opts.on("--method start", "Method must be start, setup, or teardown. Default is start.") do |arg|
+      options[:method] = arg
+    end
+    # TODO 7.0: Should these all be snake case?
+    opts.on("--options options", "Options is a comma separated list consisting of continueAfterError,pauseOnError,abortAfterError,manual,loop,breakLoopOnError. Default is continueAfterError.") do |arg|
+      options[:options] = arg
+    end
+    opts.on("-d", "--disconnect", "Run a script in disconnect mode (default = false)") do |arg|
+      options[:disconnect] = arg
+    end
+    opts.on("-w SECONDS", "--wait SECONDS", "*run only* - wait for the specified number of seconds before aborting script monitoring") do |arg|
+      options[:wait] = Integer(arg)
+    end
+    opts.on("-v", "--verbose", "*status only* - output ALL status information") do |arg|
+      options[:verbose] = arg
+    end
+  end
+
+  begin
+    option_parser.parse!(args)
+  rescue
+    abort(option_parser.to_s)
+  end
+
+  ret_code = ERROR_CODE
+  check_environment()
+  # Double check for the OPENC3_API_PASSWORD because it is absolutely required
+  # We always pass it via openc3.sh even if it's not defined so check for empty
+  if ENV['OPENC3_API_PASSWORD'].nil? or ENV['OPENC3_API_PASSWORD'].empty?
+    abort "OPENC3_API_PASSWORD environment variable is required for cli script"
+  end
+
+  # The script command is the first parameter and it is required
+  command = args[0]
+  abort(option_parser.to_s) unless command
+
+  case command
+  when 'init'
+    ret_code = cli_script_init()
+  when 'list'
+    ret_code = cli_script_list(args, options)
+  when 'spawn'
+    abort(option_parser.to_s) unless args[1] # script file is required
+    ret_code = cli_script_spawn(args, options)
+  when 'run'
+    abort(option_parser.to_s) unless args[1] # script file is required
+    ret_code = cli_script_run(args, options)
+  when 'running'
+    ret_code = cli_script_running(args, options)
+  when 'status'
+    abort(option_parser.to_s) unless args[1] # script ID is required
+    ret_code = cli_script_status(args, options)
+  when 'stop'
+    abort(option_parser.to_s) unless args[1] # script ID is required
+    ret_code = cli_script_stop(args, options)
+  else
+    abort 'openc3cli internal error: parsing arguments'
+  end
+  exit(ret_code)
+end
+
+if not ARGV[0].nil? # argument(s) given
+
+  # Handle each task
+  case ARGV[0].downcase
+
+  when 'irb'
+    if ARGV[1] == '--help' || ARGV[1] == '-h'
+      puts "Usage: cli irb"
+      puts ""
+      puts "Start an interactive Ruby (IRB) session with COSMOS libraries loaded"
+      puts ""
+      puts "This provides access to all COSMOS classes and methods for interactive"
+      puts "debugging and exploration. Use 'exit' or Ctrl-D to quit the IRB session."
+      puts ""
+      puts "Example:"
+      puts "  cli irb"
+      puts "  > require 'openc3'"
+      puts "  > OpenC3::System.targets"
+      puts ""
+      puts "Note: For IRB-specific options, start IRB first then type 'help'"
+      exit 0
+    end
+    ARGV.clear
+    IRB.start
+
+  when 'script'
+    cli_script(ARGV[1..-1])
+
+  when 'rake'
+    # Check for --help first, before checking for Rakefile
+    if ARGV[1] == '--help' || ARGV[1] == '-h'
+      puts "Usage: cli rake [RAKE_OPTIONS] [TASKS...]"
+      puts ""
+      puts "Run rake tasks in the current directory"
+      puts ""
+      puts "This runs the standard Ruby rake tool with all COSMOS libraries available."
+      puts "A Rakefile must exist in the current directory."
+      puts ""
+      puts "Common rake options:"
+      puts "  -T, --tasks              List all available rake tasks with descriptions"
+      puts "  -D, --describe PATTERN   Describe tasks matching PATTERN"
+      puts "  -h, --help               Show rake's full help message"
+      puts ""
+      puts "Examples:"
+      puts "  cli rake -T              # List all available tasks"
+      puts "  cli rake build           # Run the 'build' task"
+      puts "  cli rake test            # Run tests"
+      puts ""
+      puts "Note: Must be run in a directory containing a Rakefile"
+      exit 0
+    end
+    # Now check for Rakefile existence
+    if File.exist?('Rakefile')
+      puts `rake #{ARGV[1..-1].join(' ')}`
+    else
+      puts "No Rakefile found! Only run 'rake' in the presence of a Rakefile which is typically at the root of your COSMOS project."
+    end
+
+  when 'validate'
+    if ARGV[1].nil? || ARGV[1] == '--help' || ARGV[1] == '-h'
+      puts "Usage: cli validate PLUGIN.gem [SCOPE] [VARIABLES.json]"
+      puts ""
+      puts "Validate a COSMOS plugin gem file"
+      puts ""
+      puts "Arguments:"
+      puts "  PLUGIN.gem        Plugin gem file to validate (required)"
+      puts "  SCOPE             Scope for validation (optional, default: DEFAULT)"
+      puts "  VARIABLES.json    Variables JSON file (optional)"
+      puts ""
+      puts "Options:"
+      puts "  -h, --help        Show this help message"
+      exit(ARGV[1].nil? ? 1 : 0)
+    end
+    validate_plugin(ARGV[1], scope: ARGV[2], variables_file: ARGV[3])
+
+  when 'load'
+    # Check for help flag or missing arguments
+    if ARGV[1].nil? || ARGV[1] == '--help' || ARGV[1] == '-h'
+      puts "Usage:"
+      puts "  cli load PLUGIN.gem"
+      puts "  cli load PLUGIN.gem --variables VARIABLES.json"
+      puts "  cli load PLUGIN.gem SCOPE PLUGIN_HASH.json [force]"
+      puts "  cli load PLUGIN.gem --variables VARIABLES.json SCOPE PLUGIN_HASH.json [force]"
+      puts ""
+      puts "Load a COSMOS plugin gem file"
+      puts ""
+      puts "Common Usage (Auto-detect):"
+      puts "  cli load PLUGIN.gem"
+      puts "    - Installs new plugin in DEFAULT scope"
+      puts "    - Automatically detects and upgrades if plugin already exists"
+      puts "    - Skips installation if same version already installed"
+      puts ""
+      puts "  cli load PLUGIN.gem --variables VARIABLES.json"
+      puts "    - Same as above, but provides variables for plugin configuration"
+      puts ""
+      puts "Advanced Usage (Manual Control):"
+      puts "  cli load PLUGIN.gem SCOPE PLUGIN_HASH.json [force]"
+      puts "    - Used by Admin UI for plugin create/edit/upgrade operations"
+      puts "    - Requires PLUGIN_HASH.json (output from install_phase1)"
+      puts "    - 'force' argument forces reinstall even if version unchanged"
+      puts ""
+      puts "Arguments:"
+      puts "  PLUGIN.gem           Plugin gem file to load (required)"
+      puts "  SCOPE                Scope to install plugin in (default: DEFAULT)"
+      puts "  PLUGIN_HASH.json     Plugin hash JSON file from install_phase1 (optional)"
+      puts "  force                Force plugin installation even if no changes (optional)"
+      puts ""
+      puts "Options:"
+      puts "  --variables FILE     Variables JSON file for plugin installation"
+      puts "  -h, --help           Show this help message"
+      puts ""
+      puts "IMPORTANT LIMITATION:"
+      puts "  To specify SCOPE without PLUGIN_HASH.json, you must use the --variables"
+      puts "  option (even with an empty JSON file) to prevent argument misinterpretation."
+      puts ""
+      puts "Examples:"
+      puts "  cli load my-plugin-1.0.0.gem"
+      puts "  cli load my-plugin-1.0.0.gem --variables vars.json"
+      puts "  cli load my-plugin-1.0.0.gem DEFAULT plugin_hash.json"
+      puts "  cli load my-plugin-1.0.0.gem DEFAULT plugin_hash.json force"
+      exit(ARGV[1].nil? ? 1 : 0)
+    end
+
+    # force is a boolean so if they pass 'force' it is true
+    # See plugins_controller.rb install for usage
+    variables_option = ARGV.find_index('--variables')
+    if variables_option.nil?
+      scope = ARGV[2]
+      plugin_hash_file = ARGV[3]
+      force = ARGV[4] == 'force'
+    else
+      scope = ARGV[2] unless variables_option <= 2
+      plugin_hash_file = ARGV[3] unless variables_option <= 3
+      force = ARGV[4] == 'force' unless variables_option <= 4
+      variables_file = ARGV[variables_option + 1]
+    end
+    load_plugin(ARGV[1], scope: scope, plugin_hash_file: plugin_hash_file, force: force, variables_file: variables_file)
+
+  when 'list'
+    if ARGV[1] == '--help' || ARGV[1] == '-h'
+      puts "Usage: cli list [SCOPE]"
+      puts ""
+      puts "List all installed plugins in the specified scope"
+      puts ""
+      puts "Arguments:"
+      puts "  SCOPE             Scope to list plugins from (optional, default: DEFAULT)"
+      puts ""
+      puts "Options:"
+      puts "  -h, --help        Show this help message"
+      exit 0
+    end
+    list_plugins(scope: ARGV[1])
+
+  when 'unload'
+    if ARGV[1].nil? || ARGV[1] == '--help' || ARGV[1] == '-h'
+      puts "Usage: cli unload PLUGIN_NAME [SCOPE]"
+      puts ""
+      puts "Unload a COSMOS plugin"
+      puts ""
+      puts "Arguments:"
+      puts "  PLUGIN_NAME       Name of the plugin to unload (required)"
+      puts "  SCOPE             Scope to unload from (optional, default: DEFAULT)"
+      puts ""
+      puts "Options:"
+      puts "  -h, --help        Show this help message"
+      exit(ARGV[1].nil? ? 1 : 0)
+    end
+    unload_plugin(ARGV[1], scope: ARGV[2])
+
+  when 'pkginstall', 'geminstall'
+    if ARGV[1].nil? || ARGV[1] == '--help' || ARGV[1] == '-h'
+      puts "Usage: cli pkginstall PACKAGE_NAME [SCOPE]"
+      puts "       cli geminstall GEM_NAME [SCOPE]"
+      puts ""
+      puts "Install a package/gem into a loaded plugin"
+      puts ""
+      puts "Arguments:"
+      puts "  PACKAGE_NAME      Name of the package to install (required)"
+      puts "  SCOPE             Scope for installation (optional, default: DEFAULT)"
+      puts ""
+      puts "Options:"
+      puts "  -h, --help        Show this help message"
+      exit(ARGV[1].nil? ? 1 : 0)
+    end
+    cli_pkg_install(ARGV[1], scope: ARGV[2])
+
+  when 'pkguninstall', 'gemuninstall'
+    if ARGV[1].nil? || ARGV[1] == '--help' || ARGV[1] == '-h'
+      puts "Usage: cli pkguninstall PACKAGE_NAME [SCOPE]"
+      puts "       cli gemuninstall GEM_NAME [SCOPE]"
+      puts ""
+      puts "Uninstall a package/gem from a loaded plugin"
+      puts ""
+      puts "Arguments:"
+      puts "  PACKAGE_NAME      Name of the package to uninstall (required)"
+      puts "  SCOPE             Scope for uninstallation (optional, default: DEFAULT)"
+      puts ""
+      puts "Options:"
+      puts "  -h, --help        Show this help message"
+      exit(ARGV[1].nil? ? 1 : 0)
+    end
+    cli_pkg_uninstall(ARGV[1], scope: ARGV[2])
+
+  when 'generate'
+    # To test against a local copy call this file from the root cosmos directory like this:
+    # ruby -Iopenc3/lib openc3/bin/openc3cli generate ...
+    OpenC3::CliGenerator.generate(ARGV[1..-1])
+
+  when 'rubysloc'
+    puts `ruby /openc3/bin/rubysloc #{ARGV[1..-1].join(' ')}`
+
+  when 'cstol_converter'
+    puts `ruby /openc3/bin/cstol_converter #{ARGV[1..-1].join(' ')}`
+
+  when 'xtce_converter'
+    xtce_converter(ARGV[1..-1])
+
+  when 'bridge'
+    if ARGV[1] == '--help' || ARGV[1] == '-h'
+      puts "Usage: cli bridge [FILENAME] [PARAMS...]"
+      puts ""
+      puts "Run a COSMOS bridge from a bridge configuration file"
+      puts ""
+      puts "Arguments:"
+      puts "  FILENAME          Bridge config file (optional, default: bridge.txt)"
+      puts "  PARAMS            Additional parameters to pass to bridge"
+      puts ""
+      puts "Options:"
+      puts "  -h, --help        Show this help message"
+      exit 0
+    end
+    ENV['OPENC3_NO_STORE'] = '1'
+    filename = ARGV[1]
+    filename = 'bridge.txt' unless filename
+    params = ARGV[2..-1]
+    params = [] unless params
+    run_bridge(filename, params)
+
+  when 'bridgegem'
+    if ARGV[1].nil? || ARGV[1] == '--help' || ARGV[1] == '-h'
+      puts "Usage: cli bridgegem GEM_NAME [PARAMS...]"
+      puts ""
+      puts "Run a COSMOS bridge from a gem's bridge.txt file"
+      puts ""
+      puts "Arguments:"
+      puts "  GEM_NAME          Name of the gem containing bridge.txt (required)"
+      puts "  PARAMS            Additional parameters to pass to bridge"
+      puts ""
+      puts "Options:"
+      puts "  -h, --help        Show this help message"
+      exit(ARGV[1].nil? ? 1 : 0)
+    end
+    ENV['OPENC3_NO_STORE'] = '1'
+    filename = nil
+    gem_name = ARGV[1]
+    Gem::Specification.each do |s|
+      # This appears to return the newest version of each gem first,
+      # so its ok that we stop on the first time it is found
+      if s.name == gem_name
+        if Array === Gem.path
+          Gem.path.each do |gem_path|
+            filename = File.join(gem_path, 'gems', "#{s.name}-#{s.version}", 'bridge.txt')
+            puts "Trying #{filename}"
+            break if File.exist?(filename)
+          end
+        else
+          filename = File.join(Gem.path, 'gems', "#{s.name}-#{s.version}", 'bridge.txt')
+        end
+        raise "#{filename} not found" unless File.exist?(filename)
+      end
+    end
+    raise "gem #{gem_name} not found" unless filename
+    params = ARGV[2..-1]
+    params = [] unless params
+    run_bridge(filename, params)
+
+  when 'bridgesetup'
+    if ARGV[1] == '--help' || ARGV[1] == '-h'
+      puts "Usage: cli bridgesetup [FILENAME]"
+      puts ""
+      puts "Generate a default bridge configuration file"
+      puts ""
+      puts "Arguments:"
+      puts "  FILENAME          Output filename (optional, default: bridge.txt)"
+      puts ""
+      puts "Options:"
+      puts "  -h, --help        Show this help message"
+      exit 0
+    end
+    ENV['OPENC3_NO_STORE'] = '1'
+    filename = ARGV[1]
+    filename = 'bridge.txt' unless filename
+    unless File.exist?(filename)
+      OpenC3::BridgeConfig.generate_default(filename)
+    end
+
+  when 'help'
+    print_usage()
+
+  when 'redis'
+    if ARGV[1] == '--help' || ARGV[1] == '-h'
+      puts "Usage: cli redis COMMAND [ARGS...]"
+      puts ""
+      puts "Interact with the Redis database"
+      puts ""
+      puts "Commands:"
+      puts "  keys              Get all Redis keys"
+      puts "  hget HASH KEY     Get a value from a Redis hash"
+      puts ""
+      puts "Options:"
+      puts "  -h, --help        Show this help message"
+      exit 0
+    end
+    case (ARGV[1])
+    when 'keys'
+      get_redis_keys()
+    when 'hget'
+      if ARGV[2].nil? || ARGV[3].nil? || ARGV[2] == '--help' || ARGV[2] == '-h'
+        puts "Usage: cli redis hget HASH KEY"
+        puts ""
+        puts "Get a value from a Redis hash"
+        puts ""
+        puts "Arguments:"
+        puts "  HASH              Redis hash name (required)"
+        puts "  KEY               Key within the hash (required)"
+        puts ""
+        puts "Options:"
+        puts "  -h, --help        Show this help message"
+        exit(ARGV[2].nil? || ARGV[3].nil? ? 1 : 0)
+      end
+      redis = Redis.new(url: $redis_url, username: ENV['OPENC3_REDIS_USERNAME'], password: ENV['OPENC3_REDIS_PASSWORD'])
+      puts JSON.parse(redis.hget(ARGV[2], ARGV[3]), allow_nan: true, create_additions: true)
+    else
+      puts "Unknown redis task: #{ARGV[1]}\n"
+      puts "Valid redis tasks: keys, hget"
+    end
+
+  when 'removebase'
+    if ARGV[1] == '--help' || ARGV[1] == '-h'
+      puts "Usage: cli removebase"
+      puts ""
+      puts "Remove non-enterprise tool base and admin plugins from all scopes"
+      puts "This is typically used to support enterprise upgrades"
+      puts ""
+      puts "Options:"
+      puts "  -h, --help        Show this help message"
+      exit 0
+    end
+    # Used to remove tool base to better support enterprise upgrade
+    scopes = OpenC3::ScopeModel.all
+    scopes.each do |scope_name, _scope|
+      plugins = OpenC3::PluginModel.all(scope: scope_name)
+      plugins.each do |plugin_name, plugin|
+        if plugin["name"] =~ /tool-base/ and plugin["name"] !~ /enterprise/
+          unload_plugin(plugin_name, scope: scope_name)
+        end
+        if plugin["name"] =~ /tool-admin/ and plugin["name"] !~ /enterprise/
+          unload_plugin(plugin_name, scope: scope_name)
+        end
+      end
+    end
+
+  when 'removeenterprise'
+    if ARGV[1] == '--help' || ARGV[1] == '-h'
+      puts "Usage: cli removeenterprise"
+      puts ""
+      puts "Remove all enterprise plugins from all scopes"
+      puts "This is typically used to support downgrades"
+      puts ""
+      puts "Options:"
+      puts "  -h, --help        Show this help message"
+      exit 0
+    end
+    # Used to remove enterprise plugins to better support downgrade
+    scopes = OpenC3::ScopeModel.all
+    scopes.each do |scope_name, _scope|
+      plugins = OpenC3::PluginModel.all(scope: scope_name)
+      plugins.each do |plugin_name, plugin|
+        if plugin["name"] =~ /enterprise/
+          unload_plugin(plugin_name, scope: scope_name)
+        end
+      end
+    end
+
+  when 'createqueue'
+    if ARGV[1].nil? || ARGV[1] == '--help' || ARGV[1] == '-h'
+      puts "Usage: cli createqueue QUEUE_NAME [SCOPE]"
+      puts ""
+      puts "Create a new queue in the specified scope"
+      puts ""
+      puts "Arguments:"
+      puts "  QUEUE_NAME        Name of the queue to create (required)"
+      puts "  SCOPE             Scope for the queue (optional, default: DEFAULT)"
+      puts ""
+      puts "Options:"
+      puts "  -h, --help        Show this help message"
+      exit(ARGV[1].nil? ? 1 : 0)
+    end
+    queue = OpenC3::QueueModel.get(name: ARGV[1], scope: ARGV[2])
+    unless queue
+      queue = OpenC3::QueueModel.new(name: ARGV[1], state: 'RELEASE', scope: ARGV[2])
+      queue.create
+    end
+
+  when 'destroyscope'
+    if ARGV[1].nil? || ARGV[1] == '--help' || ARGV[1] == '-h'
+      puts "Usage: cli destroyscope SCOPE_NAME"
+      puts ""
+      puts "Destroy a scope and all its associated data"
+      puts ""
+      puts "Arguments:"
+      puts "  SCOPE_NAME        Name of the scope to destroy (required)"
+      puts ""
+      puts "Options:"
+      puts "  -h, --help        Show this help message"
+      exit(ARGV[1].nil? ? 1 : 0)
+    end
+    scope = OpenC3::ScopeModel.get_model(name: ARGV[1])
+    scope.destroy
+
+  when 'localinit'
+    if ARGV[1] == '--help' || ARGV[1] == '-h'
+      puts "Usage: cli localinit"
+      puts ""
+      puts "Initialize local mode configuration"
+      puts ""
+      puts "Options:"
+      puts "  -h, --help        Show this help message"
+      exit 0
+    end
+    OpenC3::LocalMode.local_init()
+
+  when 'initbuckets'
+    if ARGV[1] == '--help' || ARGV[1] == '-h'
+      puts "Usage: cli initbuckets"
+      puts ""
+      puts "Initialize all configured COSMOS buckets"
+      puts ""
+      puts "Options:"
+      puts "  -h, --help        Show this help message"
+      exit 0
+    end
+    client = OpenC3::Bucket.getClient()
+    ENV.map do |key, value|
+      if key.match(/^OPENC3_(.+)_BUCKET$/) && !value.empty?
+        client.create(value)
+      end
+    end
+    client.ensure_public(ENV['OPENC3_TOOLS_BUCKET'])
+
+  when 'runmigrations'
+    if ARGV[1] == '--help' || ARGV[1] == '-h'
+      puts "Usage: cli runmigrations"
+      puts ""
+      puts "Run database migrations"
+      puts ""
+      puts "Options:"
+      puts "  -h, --help        Show this help message"
+      exit 0
+    end
+    run_migrations(ARGV[1])
+
+  else # Unknown task
+    print_usage()
+    abort("Unknown task: #{ARGV[0]}")
+  end
+
+else # No arguments given
+  print_usage()
+end

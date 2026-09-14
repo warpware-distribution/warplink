@@ -1,0 +1,65 @@
+SCREEN AUTO AUTO 1.0
+
+VERTICAL
+  TITLE "<%= target_name %> Instrument ADCS Information" Courier 20 NORMAL true
+  # Note @original_target_name is also available
+
+  HORIZONTAL
+    VERTICALBOX "Position and Velocity"
+      LABELVALUE <%= target_name %> ADCS POSX WITH_UNITS 20 CENTER
+        # We recommend using these built-in colors from 1-8
+        SETTING TEXTCOLOR var(--color-data-visualization-1)
+      LABELVALUE <%= target_name %> ADCS POSY WITH_UNITS 22 CENTER
+        SETTING TEXTCOLOR var(--color-data-visualization-1)
+      LABELVALUE <%= target_name %> ADCS POSZ WITH_UNITS 24 CENTER
+        SETTING TEXTCOLOR var(--color-data-visualization-1)
+      LABELVALUE <%= target_name %> ADCS VELX WITH_UNITS 20
+        SETTING TEXTCOLOR var(--color-data-visualization-2)
+      LABELVALUE <%= target_name %> ADCS VELY WITH_UNITS 22
+        SETTING TEXTCOLOR var(--color-data-visualization-2)
+      LABELVALUE <%= target_name %> ADCS VELZ WITH_UNITS 24
+        SETTING TEXTCOLOR var(--color-data-visualization-2)
+    END
+
+    VERTICALBOX "Attitude"
+      LABELVALUE <%= target_name %> ADCS Q1 WITH_UNITS 12 RIGHT
+        SETTING TEXTALIGN LEFT
+      LABELVALUE <%= target_name %> ADCS Q2 WITH_UNITS 12 RIGHT
+        SETTING TEXTALIGN LEFT
+      LABELVALUE <%= target_name %> ADCS Q3 WITH_UNITS 12 RIGHT
+        SETTING TEXTALIGN LEFT
+      LABELVALUE <%= target_name %> ADCS Q4 WITH_UNITS 12 RIGHT
+        SETTING TEXTALIGN LEFT
+      LABELVALUE <%= target_name %> ADCS BIASX WITH_UNITS 12 RIGHT
+        SETTING TEXTALIGN LEFT
+      LABELVALUE <%= target_name %> ADCS BIASY WITH_UNITS 12 RIGHT
+        SETTING TEXTALIGN LEFT
+      LABELVALUE <%= target_name %> ADCS BIASZ WITH_UNITS 12 RIGHT
+        SETTING TEXTALIGN LEFT
+    END
+
+    VERTICALBOX "File Progress"
+      LABELPROGRESSBAR <%= target_name %> ADCS POSPROGRESS 1 200 # scale 1, width 200
+      LABELPROGRESSBAR <%= target_name %> ADCS ATTPROGRESS
+      LABELPROGRESSBAR <%= target_name %> ADCS ATTPROGRESS 2 # scale by 2
+
+      LABEL ""
+      LABEL "LEFT"
+        SETTING PADDING 5
+        SETTING TEXTALIGN LEFT
+        SETTING BACKCOLOR var(--color-data-visualization-1)
+      LABEL "CENTER"
+        SETTING PADDING 5
+        SETTING TEXTALIGN CENTER
+        SETTING BACKCOLOR var(--color-data-visualization-2)
+      LABEL "RIGHT"
+        SETTING PADDING 5
+        SETTING TEXTALIGN RIGHT
+        SETTING BACKCOLOR var(--color-data-visualization-3)
+    END
+  END
+
+  VERTICALBOX
+    LABELVALUE <%= target_name %> ADCS PACKET_TIMEFORMATTED WITH_UNITS 30
+  END
+END

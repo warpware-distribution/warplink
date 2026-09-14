@@ -1,0 +1,47 @@
+AllCops:
+  NewCops: enable
+  TargetRubyVersion: 3.4
+
+# Layout
+Layout/LineLength:
+  Enabled: false # long lines are allowed
+
+# Style
+Style:
+  Enabled: false # For now disable all style
+# Style/StringLiterals:
+#   Enabled: false # Don't care about single vs double quoted strings
+# Style/UnpackFirst:
+#   Enabled: false # Use name.unpack1('A*') instead of name.unpack('A*')[0]
+# Style/MethodCallWithoutArgsParentheses:
+#   Enabled: false # Allow parens after a method call
+# Style/GlobalVars:
+#   Enabled: false # We need globals in several places
+# Style/MissingRespondToMissing:
+#   Enabled: false # We don't implement respond_to_missing?
+# Style/TrailingUnderscoreVariable:
+#   Enabled: false # I prefer "result, _ = method()" to result, = method()"
+
+# Metrics
+Metrics:
+  Enabled: false # For now disable all metrics
+# Metrics/MethodLength:
+#   Enabled: false # Methods can be long
+# Metrics/ClassLength:
+#   Enabled: false # Classes can be long
+# Metrics/AbcSize:
+#   Enabled: false # Assignment Branch Condition size
+
+Gemspec/RequireMFA:
+  Enabled: false
+# We use this in our APIs like WHITELIST ||= []
+Lint/OrAssignmentToConstant:
+  Enabled: false
+Lint/UnusedMethodArgument:
+  Enabled: false
+# This rule doesn't allow for value.to_s(16)
+Lint/RedundantStringCoercion:
+  Enabled: false
+# This rule interferes with a lot of unit tests as well as json_accessor.rb
+Lint/ConstantDefinitionInBlock:
+  Enabled: false

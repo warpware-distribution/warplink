@@ -1,0 +1,214 @@
+---
+TARGET:
+  summary: Defines a new target
+  example: TARGET KEYSIGHT_N6700 PWR_SUPPLY1
+  parameters:
+    - name: Folder Name
+      required: true
+      description: The target folder
+      values: .*
+    - name: Name
+      required: true
+      description:
+        The target name. While this typically matches the Folder Name
+        it can be different to create multiple targets based on the same target definition.
+        As in the Example Usage, the target folder is KEYSIGHT_N6700 but the target name is PWR_SUPPLY1.
+        To create multiple targets from the same folder, just define multiple TARGET entries
+        with different target names. To make the target definition flexbible, you can use ERB to
+        insert the target name in procedures, libraries, etc via &lt;%= target_name %&gt;.
+        See [ERB target_name](/docs/configuration/format#target_name) for more information.
+      values: .*
+  modifiers:
+    CMD_BUFFER_DEPTH:
+      summary: Number of commands to buffer to ensure logged in order
+      since: 5.2.0
+      parameters:
+        - name: Buffer Depth
+          required: true
+          description: Buffer depth in packets (Default = 5)
+          values: \d+
+    CMD_LOG_CYCLE_TIME:
+      summary: Command binary logs can be cycled on a time interval.
+      parameters:
+        - name: Time
+          required: true
+          description: Maximum time between files in seconds (default = 600)
+          values: \d+
+    CMD_LOG_CYCLE_SIZE:
+      summary: Command binary logs can be cycled after a certain log file size is reached.
+      parameters:
+        - name: Size
+          required: true
+          description: Maximum file size in bytes (default = 50_000_000)
+          values: \d+
+    CMD_LOG_RETAIN_TIME:
+      summary: How long to keep raw command logs in seconds.
+      parameters:
+        - name: Time
+          required: true
+          description: Number of seconds to keep raw command logs (default = nil = Forever)
+          values: \d+
+    CMD_DECOM_LOG_CYCLE_TIME:
+      summary: Command decommutation logs can be cycled on a time interval.
+      parameters:
+        - name: Time
+          required: true
+          description: Maximum time between files in seconds (default = 600)
+          values: \d+
+    CMD_DECOM_LOG_CYCLE_SIZE:
+      summary: Command decommutation logs can be cycled after a certain log file size is reached.
+      parameters:
+        - name: Size
+          required: true
+          description: Maximum file size in bytes (default = 50_000_000)
+          values: \d+
+    CMD_DECOM_LOG_RETAIN_TIME:
+      summary: How long to keep decom command logs in seconds.
+      parameters:
+        - name: Time
+          required: true
+          description: Number of seconds to keep decom command logs (default = nil = Forever)
+          values: \d+
+    TLM_BUFFER_DEPTH:
+      summary: Number of telemetry packets to buffer to ensure logged in order
+      since: 5.2.0
+      parameters:
+        - name: Buffer Depth
+          required: true
+          description: Buffer depth in packets (Default = 60)
+          values: \d+
+    TLM_LOG_CYCLE_TIME:
+      summary: Telemetry binary logs can be cycled on a time interval.
+      parameters:
+        - name: Time
+          required: true
+          description: Maximum time between files in seconds (default = 600)
+          values: \d+
+    TLM_LOG_CYCLE_SIZE:
+      summary: Telemetry binary logs can be cycled after a certain log file size is reached.
+      parameters:
+        - name: Size
+          required: true
+          description: Maximum file size in bytes (default = 50_000_000)
+          values: \d+
+    TLM_LOG_RETAIN_TIME:
+      summary: How long to keep raw telemetry logs in seconds.
+      parameters:
+        - name: Time
+          required: true
+          description: Number of seconds to keep raw telemetry logs (default = nil = Forever)
+          values: \d+
+    TLM_DECOM_LOG_CYCLE_TIME:
+      summary: Telemetry decommutation logs can be cycled on a time interval.
+      parameters:
+        - name: Time
+          required: true
+          description: Maximum time between files in seconds (default = 600)
+          values: \d+
+    TLM_DECOM_LOG_CYCLE_SIZE:
+      summary: Telemetry decommutation logs can be cycled after a certain log file size is reached.
+      parameters:
+        - name: Size
+          required: true
+          description: Maximum file size in bytes (default = 50_000_000)
+          values: \d+
+    TLM_DECOM_LOG_RETAIN_TIME:
+      summary: How long to keep decom telemetry logs in seconds.
+      parameters:
+        - name: Time
+          required: true
+          description: Number of seconds to keep decom telemetry logs (default = nil = Forever)
+          values: \d+
+    REDUCED_MINUTE_LOG_RETAIN_TIME:
+      summary: How long to keep reduced minute telemetry logs in seconds.
+      parameters:
+        - name: Time
+          required: true
+          description: Number of seconds to keep reduced minute telemetry logs (default = nil = Forever)
+          values: \d+
+    REDUCED_HOUR_LOG_RETAIN_TIME:
+      summary: How long to keep reduced hour telemetry logs in seconds.
+      parameters:
+        - name: Time
+          required: true
+          description: Number of seconds to keep reduced hour telemetry logs (default = nil = Forever)
+          values: \d+
+    REDUCED_DAY_LOG_RETAIN_TIME:
+      summary: How long to keep reduced day telemetry logs in seconds.
+      parameters:
+        - name: Time
+          required: true
+          description: Number of seconds to keep reduced day telemetry logs (default = nil = Forever)
+          values: \d+
+    LOG_RETAIN_TIME:
+      summary: How long to keep all regular telemetry logs in seconds.
+      parameters:
+        - name: Time
+          required: true
+          description: Number of seconds to keep all regular telemetry logs (default = nil = Forever)
+          values: \d+
+    REDUCED_LOG_RETAIN_TIME:
+      summary: How long to keep all reduced telemetry logs in seconds.
+      parameters:
+        - name: Time
+          required: true
+          description: Number of seconds to keep all reduced telemetry logs (default = nil = Forever)
+          values: \d+
+    CLEANUP_POLL_TIME:
+      summary: Period at which to run the cleanup process.
+      parameters:
+        - name: Time
+          required: true
+          description: Number of seconds between runs of the cleanup process (default = 600 = 10 minutes)
+          values: \d+
+    REDUCER_DISABLE:
+      summary: Disables the data reduction microservice for the target
+    REDUCER_MAX_CPU_UTILIZATION:
+      summary: Maximum amount of CPU utilization to apply to data reduction
+      parameters:
+        - name: Percentage
+          required: true
+          description: 0 to 100 percent (default = 30)
+          values: \d+
+    TARGET_MICROSERVICE:
+      summary: Breaks a target microservice out into its own process.
+      description:
+        Can be used to give more resources to processing that is falling behind.
+        If defined multiple times for the same type, will create multiple processes.
+        Each process can be given specific packets to process with the PACKET keyword.
+      since: 5.2.0
+      parameters:
+        - name: Type
+          required: true
+          description: The target microservice type. Must be one of
+            DECOM, COMMANDLOG, DECOMCMDLOG, PACKETLOG, DECOMLOG, REDUCER, or CLEANUP
+          values: .*
+    PACKET:
+      summary: Packet Name to allocate to the current TARGET_MICROSERVICE.
+      since: 5.2.0
+      parameters:
+        - name: Packet Name
+          required: true
+          description: The packet name. Does not apply to
+            REDUCER or CLEANUP target microservice types.
+          values: .*
+    DISABLE_ERB:
+      summary: Disable ERB processing
+      description: Disable ERB processing for the entire target or a set of regular expressions over its filenames
+      since: 5.12.0
+      parameters:
+        - name: Regex
+          required: false
+          description: Regex to match against filenames. If match, then no ERB processing
+          values: .+
+    SHARD:
+      summary: Operator shard to run target microservices on
+      description: Operator Shard. Only used if running multiple operator containers typically in Kubernetes
+      since: 6.0.0
+      parameters:
+        - name: Shard
+          required: false
+          description: Shard number starting from 0
+          values: \d+
+      example: |
+        SHARD 0

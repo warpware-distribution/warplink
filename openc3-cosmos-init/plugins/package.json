@@ -1,0 +1,15 @@
+{
+  "name": "openc3",
+  "private": true,
+  "scripts": {
+    "build:common": "pnpm -F @openc3/*-common build"
+  },
+  "devDependencies": {
+    "@vue/eslint-config-prettier": "10.2.0",
+    "eslint": "10.2.0",
+    "eslint-plugin-vue": "10.8.0",
+    "eslint-plugin-vuetify": "2.7.2",
+    "globals": "17.4.0",
+    "vue-eslint-parser": "10.4.0"
+  }
+}

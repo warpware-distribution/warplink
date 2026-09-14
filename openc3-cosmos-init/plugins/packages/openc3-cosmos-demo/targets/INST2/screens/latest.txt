@@ -1,0 +1,18 @@
+SCREEN AUTO AUTO 1.0
+
+VERTICAL
+  TITLE "<%= target_name %> Instrument Latest Header"
+
+  VERTICALBOX "Header"
+    LABELVALUE <%= target_name %> LATEST CCSDSVER
+    LABELVALUE <%= target_name %> LATEST CCSDSTYPE
+    LABELVALUE <%= target_name %> LATEST CCSDSSHF
+    LABELVALUE <%= target_name %> LATEST CCSDSAPID
+    LABELVALUE <%= target_name %> LATEST CCSDSSEQFLAGS
+    LABELVALUE <%= target_name %> LATEST CCSDSSEQCNT
+    LABELVALUE <%= target_name %> LATEST CCSDSLENGTH
+    LABELVALUE <%= target_name %> LATEST TIMESEC
+    LABELVALUE <%= target_name %> LATEST TIMEUS
+    LABELVALUE <%= target_name %> LATEST PKTID
+  END
+END
