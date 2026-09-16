@@ -1,9 +1,9 @@
 {
   "product": "warplink",
   "source_repo": "git@github.com:attx-engineering/cosmos.git",
-  "source_tag": "26.09.02",
-  "source_commit": "acd5faf17672074d3b7a64b4a744284fda17617c",
+  "source_tag": "26.09.03",
+  "source_commit": "ec4a46c06601f4cc962d63c3b13b01c09dda461b",
   "dist_repo": "git@github.com:warpware-distribution/warplink.git",
   "dist_branch": "main",
-  "released_at_utc": "2026-09-16T16:30:22Z"
+  "released_at_utc": "2026-09-16T16:49:39Z"
 }
